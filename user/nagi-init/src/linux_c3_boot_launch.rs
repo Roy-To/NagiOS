@@ -128,7 +128,7 @@ impl SystemServiceLaunchLifecycle for LinuxBootServiceLifecycle {
 }
 
 impl LinuxBootServiceOwner {
-    pub(super) fn new(
+    fn new(
         package_store: &File,
         catalog: &VerifiedBootCatalog,
         task24_data_root: Option<&SelectedDataRoot>,
@@ -233,6 +233,17 @@ fn validate_identity_c3_data_root(
         Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "Task24 selected Data root cannot be reused by another service",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_generic_boot_service_receiver(package_id: &str, release_build: bool) -> io::Result<()> {
+    if release_build && package_id == TASK24_IDENTITY_PACKAGE_ID {
+        Err(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "release Identity must use its Mount-verified boot receiver",
         ))
     } else {
         Ok(())
@@ -475,7 +486,8 @@ fn validate_previous_generation_number(previous_generation: Option<u64>, current
 ))]
 mod previous_launch_generation_tests {
     use super::{
-        identity_c3_data_root, validate_identity_c3_data_root, validate_previous_generation_number,
+        identity_c3_data_root, validate_generic_boot_service_receiver,
+        validate_identity_c3_data_root, validate_previous_generation_number,
         validate_previous_launch_catalog, TASK24_IDENTITY_PACKAGE_ID,
     };
     use std::num::NonZeroU64;
@@ -551,6 +563,18 @@ mod previous_launch_generation_tests {
             .expect("Identity must retain the selected root");
         assert!(std::ptr::eq(c3_root, &selected_root));
         assert!(identity_c3_data_root("org.nagi.other-service", Some(&selected_root)).is_err());
+    }
+
+    #[test]
+    fn release_identity_cannot_use_the_generic_receiver() {
+        assert_eq!(
+            validate_generic_boot_service_receiver(TASK24_IDENTITY_PACKAGE_ID, true)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::NotConnected
+        );
+        assert!(validate_generic_boot_service_receiver("org.nagi.other-service", true).is_ok());
+        assert!(validate_generic_boot_service_receiver(TASK24_IDENTITY_PACKAGE_ID, false).is_ok());
     }
 }
 
@@ -655,6 +679,31 @@ pub(super) fn authenticate_boot_service<'package>(
         IdentityListenerHandoff<'_>,
     >,
 ) -> io::Result<AuthenticatedBootService<'package>> {
+    validate_generic_boot_service_receiver(
+        catalog.descriptor().package_id(),
+        cfg!(nagi_release_build),
+    )?;
+    authenticate_boot_service_inner(
+        package_store,
+        catalog,
+        report,
+        package,
+        task24_data_root,
+        #[cfg(feature = "system-service-readiness")]
+        identity_listener,
+    )
+}
+
+fn authenticate_boot_service_inner<'package>(
+    package_store: &File,
+    catalog: &VerifiedBootCatalog,
+    report: &ArtifactPreflightReport,
+    package: VerifiedServicePackageBinding<'package>,
+    task24_data_root: Option<&SelectedDataRoot>,
+    #[cfg(feature = "system-service-readiness")] identity_listener: Option<
+        IdentityListenerHandoff<'_>,
+    >,
+) -> io::Result<AuthenticatedBootService<'package>> {
     let mut owner = LinuxBootServiceOwner::new(package_store, catalog, task24_data_root)?;
     super::log_pid1_stderr(format_args!(
         "nagi-init: C3 boot slot journal opened backing={}",
@@ -734,7 +783,7 @@ pub(super) fn authenticate_verified_identity_boot_service<'package>(
     data.verified_identity_paths()?;
     let retained_data = data.try_clone()?;
     let selected_data_root = data.selected_data_root()?;
-    let mut authenticated = authenticate_boot_service(
+    let mut authenticated = authenticate_boot_service_inner(
         package_store,
         catalog,
         report,
