@@ -44,3 +44,11 @@ NDP-REVIEW: FIX
 
 NDP-REVIEW: FIX
 
+## Round 5 — codex review of 8bd4ac79f0c2
+
+**P2 — 参照形式の根拠リンクは、リンク先が存在しなくても検査を通ります。** 実績欄に `[移植メモ][migration-notes]` と定義 `[migration-notes]: ../../developer-platform/missing-migration-notes.md` を追加すると、検査は `](` で始まる形式だけを調べるため、この参照を見落とします。文書をメモリ上で変更し、リンク先が存在しない状態で既存テストが成功することを確認しました。最小修正は、実績欄の根拠をインラインリンク形式に統一し、参照形式のリンク定義があれば検査を失敗させることです。 [test_task_doc_status.py:108](tests/developer-platform/evaluation/test_task_doc_status.py:108)
+
+指定HEADの文書は `PARTIAL` と未承認の `PROVISIONAL` 判断を記録し、host限定の実績、Stage 3のNagi target受入と実ツール接続の未実施を明記しています。目的・成果・Scope・権限に差分はなく、現行の根拠リンクの存在検査は通りました。全スイートと `NOT STARTED` に戻す一時コピーのテストはrunner報告に基づきます。
+
+NDP-REVIEW: FIX
+
