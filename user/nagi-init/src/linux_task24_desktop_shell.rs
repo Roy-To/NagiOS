@@ -556,7 +556,7 @@ mod tests {
         .unwrap();
         assert_eq!(launched, [AppId::Calendar]);
         assert_eq!(exit, ShellExit::Logout);
-        assert_eq!(console.frames, 2 + logout_keys.len() - 1);
+        assert_eq!(console.frames, 3 + logout_keys.len() - 1);
     }
 
     #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
