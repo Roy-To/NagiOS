@@ -337,7 +337,7 @@ mod tests {
                 target_arch = "x86_64",
                 feature = "linux-files-desktop",
                 not(nagi_release_build)
-            ))) + usize::from(cfg!(linux_task24_settings));
+            )));
         let mut keys = vec![INPUT_KEY_TAB; app_count];
         keys.push(INPUT_KEY_ENTER);
         keys
