@@ -855,26 +855,7 @@ mod tests {
         fs::create_dir(&path).unwrap();
         let directory = File::open(&path).unwrap();
         let before = directory.metadata().unwrap();
-        let identity = ReleaseDataMountIdentity {
-            filesystem_uuid: "12345678-1234-4234-8234-123456789abc".to_owned(),
-            device_rdev: 0x800,
-            device_major: 8,
-            device_minor: 0,
-            mount_id: 42,
-            accounts_path: "accounts".to_owned(),
-            snapshots_path: "identity/snapshots".to_owned(),
-        };
-        let root = VerifiedDataRoot::from_verified_parts_for_test(
-            directory,
-            identity.filesystem_uuid,
-            identity.device_rdev,
-            identity.device_major,
-            identity.device_minor,
-            identity.mount_id,
-            identity.accounts_path,
-            identity.snapshots_path,
-        )
-        .unwrap();
+        let root = VerifiedDataRoot::test_fixture(directory).unwrap();
         let clone = root.try_clone().unwrap();
         assert_eq!(
             root.filesystem_uuid(),
