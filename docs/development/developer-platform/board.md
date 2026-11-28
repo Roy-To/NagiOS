@@ -83,3 +83,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-27 NDP-A026: README実測表(9 fixture+all)を実測と照合し、外側の`|`を省いた行も検査する同期テストに修正(P2/（PR #288、runnerテスト成功、codexレビューPASS）
 - 11-28 NDP-A025: テスト停止の最有力原因はhostの蓋閉じスリープ（PROVISIONAL）。runnerテスト成功。レビューなし（runner判断で公開、PR #308。訂正: NDP-A025b）
 - 11-28 NDP-A025b: hostスリープの調査記録とレビュー表記を訂正し、評価テスト82件成功（PR #309、runnerテスト成功、codexレビューPASS）
+- 11-28 NDP-09t: NDP-09状態をPARTIALに更新し実績・根拠を追記（PROVISIONAL）（PR #312、runnerテスト成功、claude-opusレビューPASS）
