@@ -1,8 +1,8 @@
 //! Volume Manager storage for the boot-selected development Data mount.
 
 use super::{
-    AppStorageKind, FilesRootEntry, FilesRootEntryKind, FilesRootMetadata, USER_FILES_APP_GID,
-    USER_FILES_APP_UID,
+    AppStorageKind, FilesRootEntry, FilesRootEntryKind, FilesRootMetadata, NOTES_APP_GID,
+    NOTES_APP_UID, USER_FILES_APP_GID, USER_FILES_APP_UID,
 };
 use nagi_model::{ObjectId, UserId};
 use rustix::fs::{
@@ -20,6 +20,8 @@ use std::path::{Component, Path, PathBuf};
 
 const OBJECT_DIRECTORY: &str = "objects";
 const FILES_ROOT: &str = "root";
+const NOTES_APP_ROOT: &str = "app-root";
+const NOTES_APP_ROOT_RESERVATION: &str = "app-root.v1";
 const RESERVATION: &str = "reservation.v1";
 const MAX_ID_BYTES: usize = 128;
 const MAX_RECORD_BYTES: u64 = 512;
@@ -67,7 +69,7 @@ pub(super) fn reserve(
     profile: &str,
     principal: &str,
     kind: AppStorageKind,
-) -> io::Result<(OwnedFd, ObjectId, bool)> {
+) -> io::Result<(OwnedFd, ObjectId, bool, Option<OwnedFd>)> {
     if kind == AppStorageKind::UserFiles {
         return Err(io::ErrorKind::InvalidInput.into());
     }
@@ -133,8 +135,26 @@ pub(super) fn reserve(
         }
         Err(error) => return Err(error.into()),
     };
+    let app_process_directory = if kind == AppStorageKind::Notes {
+        Some(reserve_notes_app_process_root(
+            &profile_root,
+            selected_mount_id,
+            user,
+            profile,
+            principal,
+            NOTES_APP_UID,
+            NOTES_APP_GID,
+        )?)
+    } else {
+        None
+    };
     profile_root.sync_all()?;
-    Ok((objects.into(), object, allow_initial_index))
+    Ok((
+        objects.into(),
+        object,
+        allow_initial_index,
+        app_process_directory.map(OwnedFd::from),
+    ))
 }
 
 fn open_profile_root(
@@ -900,6 +920,119 @@ fn provision_empty_files_directory(parent: &impl AsFd, name: &str) -> io::Result
     Ok(dir)
 }
 
+/// Provision an empty app-specific process root. Ownership is assigned only
+/// while the directory is empty; an unexpected nonempty legacy root is never
+/// recursively re-owned.
+fn provision_empty_app_directory(
+    parent: &impl AsFd,
+    name: &str,
+    uid: u32,
+    gid: u32,
+) -> io::Result<File> {
+    match mkdirat(parent, name, Mode::RWXU) {
+        Ok(()) | Err(Errno::EXIST) => {}
+        Err(error) => return Err(error.into()),
+    }
+    let dir = File::from(open_beneath(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+    )?);
+    let metadata = dir.metadata()?;
+    if metadata.mode() & 0o777 != 0o700 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    match (metadata.uid(), metadata.gid()) {
+        (observed_uid, observed_gid) if (observed_uid, observed_gid) == (uid, gid) => {}
+        (0, 0) => {
+            for entry in Dir::read_from(&dir)? {
+                if !matches!(entry?.file_name().to_bytes(), b"." | b"..") {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+            }
+            fchown(&dir, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid)))?;
+            dir.sync_all()?;
+            fsync(parent)?;
+        }
+        _ => return Err(io::ErrorKind::PermissionDenied.into()),
+    }
+    let metadata = dir.metadata()?;
+    if metadata.uid() != uid || metadata.gid() != gid || metadata.mode() & 0o777 != 0o700 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(dir)
+}
+
+fn reserve_notes_app_process_root(
+    profile_root: &impl AsFd,
+    selected_mount_id: u64,
+    user: UserId,
+    profile: &str,
+    principal: &str,
+    uid: u32,
+    gid: u32,
+) -> io::Result<File> {
+    let root = provision_empty_app_directory(profile_root, NOTES_APP_ROOT, uid, gid)?;
+    require_same_mount(&root, selected_mount_id)?;
+    let metadata = root.metadata()?;
+    let expected = format!(
+        "NAGI-NOTES-APP-ROOT-1\n{:016x}\n{profile}\n{principal}\norg.nagi.notes\n{uid:08x}\n{gid:08x}\n{:016x}\n{:016x}\n{selected_mount_id:016x}\n",
+        user.0,
+        metadata.dev(),
+        metadata.ino(),
+    );
+    match open_beneath(
+        profile_root,
+        NOTES_APP_ROOT_RESERVATION,
+        OFlags::RDONLY | OFlags::NONBLOCK,
+    ) {
+        Ok(fd) => {
+            let record = File::from(fd);
+            let attributes = record.metadata()?;
+            if !attributes.is_file()
+                || attributes.uid() != 0
+                || attributes.mode() & 0o777 != 0o600
+                || attributes.nlink() != 1
+            {
+                return Err(io::ErrorKind::PermissionDenied.into());
+            }
+            let mut observed = String::new();
+            (&record)
+                .take(MAX_RECORD_BYTES + 1)
+                .read_to_string(&mut observed)?;
+            if observed != expected {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            record.sync_all()?;
+        }
+        Err(Errno::NOENT) => {
+            for entry in Dir::read_from(&root)? {
+                if !matches!(entry?.file_name().to_bytes(), b"." | b"..") {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+            }
+            let mut pending = File::from(rustix::fs::openat(
+                profile_root,
+                ".",
+                OFlags::TMPFILE | OFlags::WRONLY | OFlags::CLOEXEC,
+                Mode::RUSR | Mode::WUSR,
+            )?);
+            pending.write_all(expected.as_bytes())?;
+            pending.sync_all()?;
+            linkat(
+                &pending,
+                c"",
+                profile_root,
+                NOTES_APP_ROOT_RESERVATION,
+                AtFlags::EMPTY_PATH,
+            )?;
+            fsync(profile_root)?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(root)
+}
+
 fn open_private_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
     let dir = File::from(open_beneath(
         parent,
@@ -935,6 +1068,85 @@ fn valid_label(label: &str, principal: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notes_reservation_returns_stable_private_app_process_root() {
+        use std::fs::{self, DirBuilder};
+        use std::os::unix::fs::DirBuilderExt;
+
+        let path = std::env::temp_dir().join(format!(
+            "nagi-notes-app-process-root-{}",
+            std::process::id()
+        ));
+        DirBuilder::new().mode(0o700).create(&path).unwrap();
+        let data = File::open(&path).unwrap();
+        // This regression must run with the same root authority as PID 1 so
+        // it exercises root-owned Data provisioning and the app-root chown.
+        assert_eq!(
+            data.metadata().unwrap().uid(),
+            0,
+            "run this focused fixture as root; an unprivileged skip would hide coverage"
+        );
+        let mount_id = statx(&data, c"", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID)
+            .unwrap()
+            .stx_mnt_id;
+        let (user, profile, principal) = (UserId(6), "profile_notes", "principal_notes");
+        let attach = || {
+            reserve(
+                &data,
+                mount_id,
+                user,
+                profile,
+                principal,
+                AppStorageKind::Notes,
+            )
+        };
+        let (objects, object_id, allow_initial_index, root) = attach().unwrap();
+        assert_ne!(object_id.0, 0);
+        assert!(allow_initial_index);
+        let root = root.unwrap();
+        let first = File::from(root);
+        let first_metadata = first.metadata().unwrap();
+        assert_eq!(first_metadata.uid(), NOTES_APP_UID);
+        assert_eq!(first_metadata.gid(), NOTES_APP_GID);
+        assert_eq!(first_metadata.mode() & 0o777, 0o700);
+        fs::write(
+            path.join("profile-notes-v1/profile_notes/app-root/persisted"),
+            b"note",
+        )
+        .unwrap();
+        drop(objects);
+        let (reopened_objects, reopened_id, reopened_allow_initial_index, reopened_root) =
+            attach().unwrap();
+        let reopened = File::from(reopened_root.unwrap());
+        assert_eq!(reopened_id, object_id);
+        assert!(reopened_allow_initial_index);
+        assert_eq!(reopened.metadata().unwrap().ino(), first_metadata.ino());
+        assert_eq!(
+            fs::read(path.join("profile-notes-v1/profile_notes/app-root/persisted")).unwrap(),
+            b"note"
+        );
+        let original = path.join("profile-notes-v1/profile_notes/app-root");
+        let displaced = original.with_file_name("replaced-app-root");
+        fs::rename(&original, &displaced).unwrap();
+        DirBuilder::new().mode(0o700).create(&original).unwrap();
+        let replacement = File::open(&original).unwrap();
+        rustix::fs::fchown(
+            &replacement,
+            Some(Uid::from_raw(NOTES_APP_UID)),
+            Some(Gid::from_raw(NOTES_APP_GID)),
+        )
+        .unwrap();
+        drop(replacement);
+        assert_eq!(
+            attach().unwrap_err().kind(),
+            io::ErrorKind::InvalidData,
+            "a replacement app root must not inherit the old reservation"
+        );
+        assert_eq!(fs::read(displaced.join("persisted")).unwrap(), b"note");
+        drop((first, reopened, reopened_objects, data));
+        fs::remove_dir_all(path).unwrap();
+    }
 
     #[test]
     fn files_reservation_pins_the_original_root_identity() {

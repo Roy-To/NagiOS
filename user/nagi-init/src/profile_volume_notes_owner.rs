@@ -20,8 +20,11 @@ use nagi_identity_session::{
 
 pub(crate) use nagi_profile_volume_notes_owner::{
     ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError, ProfileVolumeNotesOwnerStatus,
-    USER_FILES_APP_GID, USER_FILES_APP_UID,
+    NOTES_APP_GID, NOTES_APP_UID, USER_FILES_APP_GID, USER_FILES_APP_UID,
 };
+
+#[cfg(linux_task24_initial_login_runtime)]
+use nagi_profile_volume_notes_owner::ProfileVolumeNotesAppProcessRoot;
 
 /// Data root selected by the trusted volume owner. Opening a directory
 /// through this root proves containment on the same mount. Profile
@@ -271,6 +274,12 @@ pub(crate) struct AuthorizedFilesRoot {
     revalidation: std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
 }
 
+#[cfg(linux_task24_initial_login_runtime)]
+pub(crate) struct AuthorizedNotesAppProcessRoot {
+    root: ProfileVolumeNotesAppProcessRoot,
+    revalidation: std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+}
+
 /// Single borrowed scope that couples one attached profile root to the exact
 /// C1 handle used when that root was issued. The provider enters the C1 effect
 /// from this value before invoking its owner-only root callback.
@@ -329,10 +338,56 @@ impl AuthorizedFilesRoot {
         Ok(AuthorizedAppStorageRoot {
             app_id,
             directory,
-            owner: Some(self),
+            owner: Some(AuthorizedAppStorageOwner::Files(self)),
             #[cfg(test)]
             allow_unbound_session_guard_for_test: false,
         })
+    }
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl AuthorizedNotesAppProcessRoot {
+    /// Convert this exact session-bound Notes process root into the generic
+    /// process launch capability. The app ID is independently checked by the
+    /// profile-volume owner before a descriptor is duplicated.
+    pub(crate) fn into_process_storage(
+        self,
+        app_id: nagi_model::AppId,
+    ) -> Result<AuthorizedAppStorageRoot, ProfileVolumeNotesOwnerError> {
+        let notes_app = nagi_model::AppId::from_identifier(b"org.nagi.notes");
+        if app_id != notes_app {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+        let directory = self
+            .revalidation
+            .with_live_session_effect(|| self.root.duplicate_directory_for_app_process(&app_id))
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+        Ok(AuthorizedAppStorageRoot {
+            app_id,
+            directory,
+            owner: Some(AuthorizedAppStorageOwner::Notes(self)),
+            #[cfg(test)]
+            allow_unbound_session_guard_for_test: false,
+        })
+    }
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+enum AuthorizedAppStorageOwner {
+    Files(AuthorizedFilesRoot),
+    Notes(AuthorizedNotesAppProcessRoot),
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl AuthorizedAppStorageOwner {
+    fn revalidation(
+        &self,
+    ) -> &std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle> {
+        match self {
+            Self::Files(owner) => &owner.revalidation,
+            Self::Notes(owner) => &owner.revalidation,
+        }
     }
 }
 
@@ -343,7 +398,7 @@ pub(crate) struct AuthorizedAppStorageRoot {
     app_id: nagi_model::AppId,
     directory: std::os::fd::OwnedFd,
     #[cfg(linux_task24_initial_login_runtime)]
-    owner: Option<AuthorizedFilesRoot>,
+    owner: Option<AuthorizedAppStorageOwner>,
     #[cfg(test)]
     allow_unbound_session_guard_for_test: bool,
 }
@@ -396,7 +451,7 @@ impl AuthorizedAppStorageRoot {
         let revalidation = self
             .owner
             .as_ref()
-            .map(|owner| std::sync::Arc::clone(&owner.revalidation));
+            .map(|owner| std::sync::Arc::clone(owner.revalidation()));
         AuthorizedAppStorageSessionGuard {
             #[cfg(linux_task24_initial_login_runtime)]
             revalidation,
@@ -508,6 +563,32 @@ impl AppStorageOwners {
             boot_volume.identity.mount_id,
         )?;
         Ok(AuthorizedFilesRoot {
+            root,
+            revalidation: std::sync::Arc::clone(revalidation),
+        })
+    }
+
+    /// Issue the Notes app-specific process root from the exact C1-attached
+    /// profile and retain the live Session authority through child reap.
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(crate) fn issue_notes_app_process_root_for_attached_session(
+        &mut self,
+        caller: &C1AuthenticatedInteractiveCaller,
+        identity: &ResolvedIdentity,
+        revalidation: &std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+    ) -> Result<AuthorizedNotesAppProcessRoot, ProfileVolumeNotesOwnerError> {
+        use ProfileVolumeNotesOwnerError::Unavailable;
+
+        self.attach_session_profile(caller, identity)?;
+        let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
+        let root = self.inner.notes().issue_notes_app_process_root()?;
+        root.validate_scope(
+            identity.principal_id().as_str(),
+            identity.profile_id().as_str(),
+            &boot_volume.directory,
+            boot_volume.identity.mount_id,
+        )?;
+        Ok(AuthorizedNotesAppProcessRoot {
             root,
             revalidation: std::sync::Arc::clone(revalidation),
         })

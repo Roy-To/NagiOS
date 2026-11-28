@@ -11,6 +11,9 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::num::NonZeroU64;
 
+mod system_metadata;
+pub use system_metadata::{VerifiedSystemBootMetadata, MAX_SIGNED_SYSTEM_METADATA_BYTES};
+
 const SIGNATURE_DOMAIN: &[u8] = b"Nagi Linux boot system service catalog v1\0";
 const READY_PLAN_SIGNATURE_DOMAIN: &[u8] = b"Nagi Linux development boot ready plan v1\0";
 const SIGNATURE_BYTES: usize = 64;

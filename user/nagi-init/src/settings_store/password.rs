@@ -1,22 +1,12 @@
 //! Password entry for the Linux Settings panel.
 
+pub(crate) use super::runtime::PasswordResult;
 use crate::ui::{Painter, Rect};
 use libnagi::{InputEvent, INPUT_EVENT_KEY, INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_TAB};
 use nagi_account_credential::{MAX_PASSWORD_BYTES, MIN_PASSWORD_BYTES};
 use nagi_localization::{text, Locale};
 use nagi_ui::{color, ColorRole, ThemeMode};
 use zeroize::{Zeroize, Zeroizing};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PasswordResult {
-    Changed,
-    WrongCurrent,
-    Wait,
-    Same,
-    Invalid,
-    Unavailable,
-    OutcomeUnknown,
-}
 
 pub(crate) struct PasswordPanel {
     secret: Zeroizing<[[u8; MAX_PASSWORD_BYTES]; 3]>,
