@@ -12587,6 +12587,7 @@ mod linux_process_resource_tests {
             .attach_linux_profile(
                 &data_root,
                 mount_id,
+                &[0x42; 32],
                 nagi_model::UserId(4),
                 "profile_legacy",
                 "principal_legacy",
@@ -12602,6 +12603,7 @@ mod linux_process_resource_tests {
             .attach_linux_profile(
                 &data_root,
                 mount_id,
+                &[0x42; 32],
                 nagi_model::UserId(3),
                 "profile_fixture",
                 "principal_fixture",
