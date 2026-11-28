@@ -23,3 +23,14 @@ P2が3件あります。指定HEADのタスク文書は `PARTIAL` を記録し�
 
 NDP-REVIEW: FIX
 
+## Round 3 — codex review of ccc0f228bfb1
+
+指定された BASE–HEAD 差分に P2 が2件あります。
+
+- **P2 — 担当パス外のレビュー記録が統合差分に残っています。** 指定の差分をそのまま取り込むと、runner が追加した過去ラウンドのレビュー記録も入ります。最小修正は、runner 側の統合対象からこのファイルを除外することです。前回からの未解決事項です。 [reviews/ndp-runner-ndp-09t.md](reviews/ndp-runner-ndp-09t.md:1)
+- **P2 — タイトル付き Markdown リンクのリンク切れを見逃します。** 実績欄の `handover.md` リンクを `[handover.md](../../developer-platform/missing.md "Handover")` に置き換えると、リンク抽出がその参照を読み飛ばし、存在検査が通ります。メモリ上で再現しました。最小修正は、任意のリンクタイトルを許容しつつリンク先を抽出し、この変異で存在検査が失敗することを確認することです。 [test_task_doc_status.py](tests/developer-platform/evaluation/test_task_doc_status.py:93)
+
+タスク文書の変更は状態行と実績欄に限られています。`PARTIAL`、host 限定の実績、Stage 3 の target 受入と実 `nagi-pkg`・PT-01 scanner 接続の未実施、委任に基づく未承認の `PROVISIONAL` 判断を確認しました。指定 HEAD と一致する文書・テストで静的検査6件が通り、状態値をメモリ上で `NOT STARTED` に戻すと状態検査が失敗しました。一時コピーを使う変異テストと全スイートの実行結果は、提示された runner の報告に基づきます。
+
+NDP-REVIEW: FIX
+
