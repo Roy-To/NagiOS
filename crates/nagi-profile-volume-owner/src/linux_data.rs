@@ -21,7 +21,8 @@ use std::path::{Component, Path, PathBuf};
 const OBJECT_DIRECTORY: &str = "objects";
 const FILES_ROOT: &str = "root";
 const NOTES_APP_ROOT: &str = "app-root";
-const NOTES_APP_ROOT_RESERVATION: &str = "app-root.v1";
+const NOTES_APP_ROOT_RESERVATION: &str = "app-root.v2";
+const LEGACY_NOTES_APP_ROOT_RESERVATION: &str = "app-root.v1";
 const RESERVATION: &str = "reservation.v1";
 const MAX_ID_BYTES: usize = 128;
 const MAX_RECORD_BYTES: u64 = 512;
@@ -65,6 +66,7 @@ fn parse_reservation(
 pub(super) fn reserve(
     data: &impl AsFd,
     selected_mount_id: u64,
+    selected_data_identity_sha256: &[u8; 32],
     user: UserId,
     profile: &str,
     principal: &str,
@@ -139,6 +141,7 @@ pub(super) fn reserve(
         Some(reserve_notes_app_process_root(
             &profile_root,
             selected_mount_id,
+            selected_data_identity_sha256,
             user,
             profile,
             principal,
@@ -966,6 +969,7 @@ fn provision_empty_app_directory(
 fn reserve_notes_app_process_root(
     profile_root: &impl AsFd,
     selected_mount_id: u64,
+    selected_data_identity_sha256: &[u8; 32],
     user: UserId,
     profile: &str,
     principal: &str,
@@ -975,8 +979,9 @@ fn reserve_notes_app_process_root(
     let root = provision_empty_app_directory(profile_root, NOTES_APP_ROOT, uid, gid)?;
     require_same_mount(&root, selected_mount_id)?;
     let metadata = root.metadata()?;
+    let selected_data_identity = lowercase_hex(selected_data_identity_sha256);
     let expected = format!(
-        "NAGI-NOTES-APP-ROOT-1\n{:016x}\n{profile}\n{principal}\norg.nagi.notes\n{uid:08x}\n{gid:08x}\n{:016x}\n{:016x}\n{selected_mount_id:016x}\n",
+        "NAGI-NOTES-APP-ROOT-2\n{:016x}\n{profile}\n{principal}\norg.nagi.notes\n{uid:08x}\n{gid:08x}\n{:016x}\n{:016x}\n{selected_data_identity}\n",
         user.0,
         metadata.dev(),
         metadata.ino(),
@@ -1005,32 +1010,117 @@ fn reserve_notes_app_process_root(
             }
             record.sync_all()?;
         }
-        Err(Errno::NOENT) => {
-            for entry in Dir::read_from(&root)? {
-                if !matches!(entry?.file_name().to_bytes(), b"." | b"..") {
-                    return Err(io::ErrorKind::InvalidData.into());
-                }
+        Err(Errno::NOENT) => match open_beneath(
+            profile_root,
+            LEGACY_NOTES_APP_ROOT_RESERVATION,
+            OFlags::RDONLY | OFlags::NONBLOCK,
+        ) {
+            Ok(fd) => {
+                let legacy = File::from(fd);
+                validate_private_root_reservation(&legacy)?;
+                let mut observed = String::new();
+                (&legacy)
+                    .take(MAX_RECORD_BYTES + 1)
+                    .read_to_string(&mut observed)?;
+                validate_legacy_notes_app_root_record(
+                    &observed,
+                    user,
+                    profile,
+                    principal,
+                    uid,
+                    gid,
+                    metadata.dev(),
+                    metadata.ino(),
+                )?;
+                legacy.sync_all()?;
+                publish_notes_app_root_record(profile_root, &expected)?;
             }
-            let mut pending = File::from(rustix::fs::openat(
-                profile_root,
-                ".",
-                OFlags::TMPFILE | OFlags::WRONLY | OFlags::CLOEXEC,
-                Mode::RUSR | Mode::WUSR,
-            )?);
-            pending.write_all(expected.as_bytes())?;
-            pending.sync_all()?;
-            linkat(
-                &pending,
-                c"",
-                profile_root,
-                NOTES_APP_ROOT_RESERVATION,
-                AtFlags::EMPTY_PATH,
-            )?;
-            fsync(profile_root)?;
-        }
+            Err(Errno::NOENT) => {
+                for entry in Dir::read_from(&root)? {
+                    if !matches!(entry?.file_name().to_bytes(), b"." | b"..") {
+                        return Err(io::ErrorKind::InvalidData.into());
+                    }
+                }
+                publish_notes_app_root_record(profile_root, &expected)?;
+            }
+            Err(error) => return Err(error.into()),
+        },
         Err(error) => return Err(error.into()),
     }
     Ok(root)
+}
+
+fn validate_private_root_reservation(record: &File) -> io::Result<()> {
+    let attributes = record.metadata()?;
+    if !attributes.is_file()
+        || attributes.uid() != 0
+        || attributes.mode() & 0o777 != 0o600
+        || attributes.nlink() != 1
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(())
+}
+
+fn validate_legacy_notes_app_root_record(
+    observed: &str,
+    user: UserId,
+    profile: &str,
+    principal: &str,
+    uid: u32,
+    gid: u32,
+    device: u64,
+    inode: u64,
+) -> io::Result<()> {
+    let prefix = format!(
+        "NAGI-NOTES-APP-ROOT-1\n{:016x}\n{profile}\n{principal}\norg.nagi.notes\n{uid:08x}\n{gid:08x}\n{:016x}\n{:016x}\n",
+        user.0, device, inode,
+    );
+    let mount_id = observed
+        .strip_prefix(&prefix)
+        .and_then(|suffix| suffix.strip_suffix('\n'))
+        .ok_or(io::ErrorKind::InvalidData)?;
+    if mount_id.len() != 16
+        || !mount_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || u64::from_str_radix(mount_id, 16).map_or(true, |value| {
+            value == 0 || format!("{value:016x}") != mount_id
+        })
+    {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    Ok(())
+}
+
+fn publish_notes_app_root_record(profile_root: &impl AsFd, expected: &str) -> io::Result<()> {
+    let mut pending = File::from(rustix::fs::openat(
+        profile_root,
+        ".",
+        OFlags::TMPFILE | OFlags::WRONLY | OFlags::CLOEXEC,
+        Mode::RUSR | Mode::WUSR,
+    )?);
+    pending.write_all(expected.as_bytes())?;
+    pending.sync_all()?;
+    linkat(
+        &pending,
+        c"",
+        profile_root,
+        NOTES_APP_ROOT_RESERVATION,
+        AtFlags::EMPTY_PATH,
+    )?;
+    fsync(profile_root)?;
+    Ok(())
+}
+
+fn lowercase_hex(bytes: &[u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = Vec::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize]);
+        encoded.push(HEX[(byte & 0x0f) as usize]);
+    }
+    String::from_utf8(encoded).expect("lowercase hexadecimal is valid UTF-8")
 }
 
 fn open_private_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
@@ -1069,10 +1159,95 @@ fn valid_label(label: &str, principal: bool) -> bool {
 mod tests {
     use super::*;
 
+    struct BindMountGuard {
+        target: std::ffi::CString,
+        mounted: bool,
+    }
+
+    impl BindMountGuard {
+        fn unmount(mut self) -> io::Result<()> {
+            let result = unsafe { umount2(self.target.as_ptr(), MNT_DETACH) };
+            if result != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            self.mounted = false;
+            Ok(())
+        }
+    }
+
+    impl Drop for BindMountGuard {
+        fn drop(&mut self) {
+            if self.mounted {
+                unsafe {
+                    umount2(self.target.as_ptr(), MNT_DETACH);
+                }
+            }
+        }
+    }
+
+    fn bind_mount_directory(source: &Path, target: &Path) -> io::Result<BindMountGuard> {
+        use std::os::unix::ffi::OsStrExt;
+
+        const MS_BIND: std::os::raw::c_ulong = 1 << 12;
+        const MS_REC: std::os::raw::c_ulong = 1 << 14;
+        const MS_PRIVATE: std::os::raw::c_ulong = 1 << 18;
+        let source = std::ffi::CString::new(source.as_os_str().as_bytes())
+            .map_err(|_| io::ErrorKind::InvalidInput)?;
+        let target = std::ffi::CString::new(target.as_os_str().as_bytes())
+            .map_err(|_| io::ErrorKind::InvalidInput)?;
+        let result = unsafe {
+            mount(
+                source.as_ptr(),
+                target.as_ptr(),
+                std::ptr::null(),
+                MS_BIND,
+                std::ptr::null(),
+            )
+        };
+        if result != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let guard = BindMountGuard {
+            target,
+            mounted: true,
+        };
+        let result = unsafe {
+            mount(
+                std::ptr::null(),
+                guard.target.as_ptr(),
+                std::ptr::null(),
+                MS_REC | MS_PRIVATE,
+                std::ptr::null(),
+            )
+        };
+        if result != 0 {
+            let error = io::Error::last_os_error();
+            let _ = guard.unmount();
+            return Err(error);
+        }
+        Ok(guard)
+    }
+
+    const MNT_DETACH: std::os::raw::c_int = 2;
+
+    extern "C" {
+        fn mount(
+            source: *const std::os::raw::c_char,
+            target: *const std::os::raw::c_char,
+            filesystemtype: *const std::os::raw::c_char,
+            mountflags: std::os::raw::c_ulong,
+            data: *const std::ffi::c_void,
+        ) -> std::os::raw::c_int;
+        fn umount2(
+            target: *const std::os::raw::c_char,
+            flags: std::os::raw::c_int,
+        ) -> std::os::raw::c_int;
+    }
+
     #[test]
     fn notes_reservation_returns_stable_private_app_process_root() {
         use std::fs::{self, DirBuilder};
-        use std::os::unix::fs::DirBuilderExt;
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 
         let path = std::env::temp_dir().join(format!(
             "nagi-notes-app-process-root-{}",
@@ -1090,11 +1265,13 @@ mod tests {
         let mount_id = statx(&data, c"", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID)
             .unwrap()
             .stx_mnt_id;
+        let selected_data_identity = [0x57; 32];
         let (user, profile, principal) = (UserId(6), "profile_notes", "principal_notes");
         let attach = || {
             reserve(
                 &data,
                 mount_id,
+                &selected_data_identity,
                 user,
                 profile,
                 principal,
@@ -1110,14 +1287,73 @@ mod tests {
         assert_eq!(first_metadata.uid(), NOTES_APP_UID);
         assert_eq!(first_metadata.gid(), NOTES_APP_GID);
         assert_eq!(first_metadata.mode() & 0o777, 0o700);
+        let reservation_path = path.join("profile-notes-v1/profile_notes/app-root.v2");
+        let reservation = fs::read_to_string(&reservation_path).unwrap();
+        assert_eq!(reservation.lines().count(), 10);
+        assert_eq!(
+            reservation.lines().last(),
+            Some(lowercase_hex(&selected_data_identity).as_str())
+        );
         fs::write(
             path.join("profile-notes-v1/profile_notes/app-root/persisted"),
             b"note",
         )
         .unwrap();
+        fs::remove_file(&reservation_path).unwrap();
+        let legacy_reservation_path = path.join("profile-notes-v1/profile_notes/app-root.v1");
+        fs::write(
+            &legacy_reservation_path,
+            format!(
+                "NAGI-NOTES-APP-ROOT-1\n{:016x}\n{profile}\n{principal}\norg.nagi.notes\n{:08x}\n{:08x}\n{:016x}\n{:016x}\n{mount_id:016x}\n",
+                user.0,
+                NOTES_APP_UID,
+                NOTES_APP_GID,
+                first_metadata.dev(),
+                first_metadata.ino(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&legacy_reservation_path, fs::Permissions::from_mode(0o600)).unwrap();
         drop(objects);
-        let (reopened_objects, reopened_id, reopened_allow_initial_index, reopened_root) =
-            attach().unwrap();
+        let remounted = path.with_file_name(format!(
+            "nagi-notes-app-process-root-remount-{}",
+            std::process::id()
+        ));
+        DirBuilder::new().mode(0o700).create(&remounted).unwrap();
+        let bind_mount = bind_mount_directory(&path, &remounted).unwrap();
+        let remounted_data = File::open(&remounted).unwrap();
+        let remounted_mount_id = statx(
+            &remounted_data,
+            c"",
+            AtFlags::EMPTY_PATH,
+            StatxFlags::MNT_ID,
+        )
+        .unwrap()
+        .stx_mnt_id;
+        assert_ne!(remounted_mount_id, mount_id);
+        assert!(
+            reserve(
+                &remounted_data,
+                mount_id,
+                &selected_data_identity,
+                user,
+                profile,
+                principal,
+                AppStorageKind::Notes,
+            )
+            .is_err(),
+            "the previous live mount ID must not be accepted after remount"
+        );
+        let (reopened_objects, reopened_id, reopened_allow_initial_index, reopened_root) = reserve(
+            &remounted_data,
+            remounted_mount_id,
+            &selected_data_identity,
+            user,
+            profile,
+            principal,
+            AppStorageKind::Notes,
+        )
+        .unwrap();
         let reopened = File::from(reopened_root.unwrap());
         assert_eq!(reopened_id, object_id);
         assert!(reopened_allow_initial_index);
@@ -1125,6 +1361,27 @@ mod tests {
         assert_eq!(
             fs::read(path.join("profile-notes-v1/profile_notes/app-root/persisted")).unwrap(),
             b"note"
+        );
+        let migrated_reservation = fs::read_to_string(&reservation_path).unwrap();
+        assert_eq!(migrated_reservation.lines().count(), 10);
+        assert_eq!(
+            migrated_reservation.lines().last(),
+            Some(lowercase_hex(&selected_data_identity).as_str())
+        );
+        assert_eq!(
+            reserve(
+                &remounted_data,
+                remounted_mount_id,
+                &[0x58; 32],
+                user,
+                profile,
+                principal,
+                AppStorageKind::Notes,
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::InvalidData,
+            "the durable Notes root must reject a different selected Data identity"
         );
         let original = path.join("profile-notes-v1/profile_notes/app-root");
         let displaced = original.with_file_name("replaced-app-root");
@@ -1144,7 +1401,9 @@ mod tests {
             "a replacement app root must not inherit the old reservation"
         );
         assert_eq!(fs::read(displaced.join("persisted")).unwrap(), b"note");
-        drop((first, reopened, reopened_objects, data));
+        drop((first, reopened, reopened_objects, remounted_data, data));
+        bind_mount.unmount().unwrap();
+        fs::remove_dir(remounted).unwrap();
         fs::remove_dir_all(path).unwrap();
     }
 
