@@ -2,27 +2,30 @@ use crate::desktop_shell_model::ShellModel;
 use crate::settings_store::{
     panel::{SettingsAction, SettingsPanel, SettingsStatus},
     password::{PasswordPanel, PasswordResult},
-    preferences::{Preferences, PreferencesError, ReadPreferences, SettingsStore},
+    preferences::{
+        Preferences, PreferencesError, ReadPreferences, SettingsSnapshotScope, SettingsStore,
+    },
 };
 use nagi_localization::Locale;
 use nagi_ui::ThemeMode;
 
-pub(in crate::linux_init) struct SettingsRuntime<'a> {
+pub(in crate::linux_init) struct SettingsRuntime<'a, S: SettingsSnapshotScope> {
     pub(in crate::linux_init) pre_login_locale: Locale,
-    pub(in crate::linux_init) open: &'a mut dyn FnMut() -> Result<SettingsStore, PreferencesError>,
+    pub(in crate::linux_init) open:
+        &'a mut dyn FnMut() -> Result<SettingsStore<S>, PreferencesError>,
     pub(in crate::linux_init) mirror: &'a mut dyn FnMut(Locale) -> std::io::Result<()>,
     pub(in crate::linux_init) change_password: &'a mut dyn FnMut(&[u8], &[u8]) -> PasswordResult,
 }
 
-pub(super) struct DesktopSettings<'a> {
-    runtime: SettingsRuntime<'a>,
+pub(super) struct DesktopSettings<'a, S: SettingsSnapshotScope> {
+    runtime: SettingsRuntime<'a, S>,
     preferences: Preferences,
-    store: Option<SettingsStore>,
+    store: Option<SettingsStore<S>>,
     status: SettingsStatus,
 }
 
-impl<'a> DesktopSettings<'a> {
-    pub(super) fn open(runtime: SettingsRuntime<'a>) -> Self {
+impl<'a, S: SettingsSnapshotScope> DesktopSettings<'a, S> {
+    pub(super) fn open(runtime: SettingsRuntime<'a, S>) -> Self {
         let preferences = Preferences {
             locale: runtime.pre_login_locale,
             theme: ThemeMode::Light,

@@ -211,6 +211,16 @@ jobs:
             --locked --offline --no-default-features \
             --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
             --bin nagi-init -- --exact desktop_shell_model::tests::focus_cycles_and_only_key_press_activates
+          desktop_shell_test_names=$(cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
+            --bin nagi-init -- --list)
+          grep -F 'normal_logout_runs_c1_and_storage_cleanup_before_returning' <<<"$desktop_shell_test_names"
+          grep -F 'failed_normal_logout_cleanup_never_returns_logout_success' <<<"$desktop_shell_test_names"
+          cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
+            --bin nagi-init -- desktop_shell::tests
           owner_test_dir="$RUNNER_TEMP/nagi-profile-volume-owner-test"
           mkdir -p "$owner_test_dir"
           trap 'sudo rm -rf "$owner_test_dir"' EXIT
