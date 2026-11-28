@@ -1080,11 +1080,13 @@ mod tests {
         ));
         DirBuilder::new().mode(0o700).create(&path).unwrap();
         let data = File::open(&path).unwrap();
-        // The profile provisioner requires a root-owned selected Data root.
-        if data.metadata().unwrap().uid() != 0 {
-            fs::remove_dir(&path).unwrap();
-            return;
-        }
+        // This regression must run with the same root authority as PID 1 so
+        // it exercises root-owned Data provisioning and the app-root chown.
+        assert_eq!(
+            data.metadata().unwrap().uid(),
+            0,
+            "run this focused fixture as root; an unprivileged skip would hide coverage"
+        );
         let mount_id = statx(&data, c"", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID)
             .unwrap()
             .stx_mnt_id;

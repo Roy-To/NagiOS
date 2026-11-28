@@ -192,7 +192,7 @@ jobs:
             --bin nagi-init -- --exact desktop_shell_model::tests::focus_cycles_and_only_key_press_activates
           owner_test_dir="$RUNNER_TEMP/nagi-profile-volume-owner-test"
           mkdir -p "$owner_test_dir"
-          trap 'rm -rf "$owner_test_dir"' EXIT
+          trap 'sudo rm -rf "$owner_test_dir"' EXIT
           owner_lock="$owner_test_dir/Cargo.lock"
           # This standalone owner crate has no committed lockfile; capture its
           # per-run resolution so the focused test uses the same locked graph.
@@ -205,6 +205,28 @@ jobs:
             --lib -- notes_object root_lock_still_serializes \
             mismatched_publication_fences snapshot_creation_uses_private_modes \
             parent_directory_sync_failure_after_publish user_files_root_scopes_normal_io_and_stops_after_end_or_revoke
+          cargo +nightly-2025-08-01 --config net.offline=false -Z unstable-options test \
+            --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
+            --lockfile-path "$owner_lock" --locked --target x86_64-unknown-linux-gnu \
+            --lib -- notes_app_process_root_is_bound_to_canonical_app_and_attachment_lifecycle
+          # Run root-owned Data provisioning with real root privileges; never
+          # count an unprivileged early-return as test coverage.
+          owner_root_test_target="$owner_test_dir/root-test-target"
+          mkdir -p "$owner_root_test_target"
+          owner_cargo_bin="$(command -v cargo)"
+          owner_cargo_path="$(dirname "$owner_cargo_bin"):$PATH"
+          sudo env \
+            HOME="$HOME" \
+            CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
+            CARGO_NET_OFFLINE=true \
+            CARGO_TARGET_DIR="$owner_root_test_target" \
+            PATH="$owner_cargo_path" \
+            "$owner_cargo_bin" +nightly-2025-08-01 -Z unstable-options test \
+              --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
+              --lockfile-path "$owner_lock" --locked --offline \
+              --target x86_64-unknown-linux-gnu --lib -- \
+              --exact linux_data::tests::notes_reservation_returns_stable_private_app_process_root
           CARGO_NET_OFFLINE=false cargo +nightly-2025-08-01 --config net.offline=false -Z unstable-options test \
             --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
             --lockfile-path "$owner_lock" --locked --target x86_64-unknown-linux-gnu --doc
