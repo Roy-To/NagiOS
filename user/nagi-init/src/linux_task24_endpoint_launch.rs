@@ -875,20 +875,30 @@ pub(super) fn run_owner_login(
                                         || runtime.poll_task24_required_identity_exit(),
                                         || runtime.check_notes_session(session.lease),
                                         || {
-                                            let mut owners = owners.try_borrow_mut().map_err(|_| {
-                                                std::io::Error::other("storage owner busy during logout")
-                                            })?;
-                                            let reason = runtime
-                                                .end_app_sessions(&issued, &mut **owners)
-                                                .map_err(|_| {
-                                                    std::io::Error::other(
-                                                        "C1 Session and app storage owner cleanup was not confirmed",
-                                                    )
-                                                })?;
+                                            // Do not return an unconfirmed cleanup error through
+                                            // the shell: the caller would then write control EOF.
+                                            let cleanup = {
+                                                let mut owners = match owners.try_borrow_mut() {
+                                                    Ok(owners) => owners,
+                                                    Err(_) => wait_for_unconfirmed_notes_session_end(),
+                                                };
+                                                runtime.end_app_sessions(&issued, &mut **owners)
+                                            };
+                                            let reason = match cleanup {
+                                                Ok(reason) => reason,
+                                                Err(_) => wait_for_unconfirmed_notes_session_end(),
+                                            };
                                             logout_completed = true;
                                             super::log_pid1_stderr(format_args!(
                                                 "NAGI_DEV_NOTES_SESSION_ENDED reason={reason:?}"
                                             ));
+                                            #[cfg(all(linux_task24_settings, not(nagi_release_build)))]
+                                            if reason == nagi_identity_session::SessionEndReason::UserLogout {
+                                                super::log_pid1_stderr(format_args!(
+                                                    "NAGI_DEV_L9_LOGGED_OUT session={}",
+                                                    issued.session_id().as_str()
+                                                ));
+                                            }
                                             Ok(())
                                         },
                                         |app, console, locale| {
