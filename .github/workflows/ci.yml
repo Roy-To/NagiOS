@@ -189,6 +189,10 @@ jobs:
           cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
             --locked --offline --no-default-features \
             --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
+            --bin nagi-init -- previous_launch_generation_tests::prior_terminal_checks_are_limited_to_dev_and_verified_release_identity
+          cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
             --bin nagi-init -- linux_task24_files_keys::tests
           cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
             --locked --offline --no-default-features \

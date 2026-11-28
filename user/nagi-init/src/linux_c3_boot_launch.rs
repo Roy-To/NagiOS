@@ -72,6 +72,8 @@ pub(super) struct LinuxBootServiceOwner {
     // Capture the prior boot's proof while the journal still describes that
     // boot. The current reservation may make the latest-row API unavailable.
     #[cfg(linux_boot_identity_runtime)]
+    validate_previous_identity_terminal: bool,
+    #[cfg(linux_boot_identity_runtime)]
     previous_identity_terminal: Option<PreviousIdentityTerminal>,
 }
 
@@ -132,6 +134,7 @@ impl LinuxBootServiceOwner {
         package_store: &File,
         catalog: &VerifiedBootCatalog,
         task24_data_root: Option<&SelectedDataRoot>,
+        verified_identity_receiver: bool,
     ) -> io::Result<Self> {
         let metadata = catalog.descriptor().launch_metadata();
         let selected_data_root =
@@ -148,26 +151,37 @@ impl LinuxBootServiceOwner {
             journal,
         )?;
         #[cfg(linux_boot_identity_runtime)]
-        let previous_identity_terminal = match c3.latest_durable_prior_boot_clear()? {
-            Some(clear) => Some(PreviousIdentityTerminal::PriorBootCleared(clear)),
-            None => c3
-                .latest_durable_normal_exit_scope_snapshot()?
-                .map(PreviousIdentityTerminal::NormalExit),
-        };
+        let validate_previous_identity_terminal = should_validate_previous_identity_terminal(
+            cfg!(nagi_release_build),
+            verified_identity_receiver,
+        );
         #[cfg(linux_boot_identity_runtime)]
-        validate_previous_launch_catalog(
-            previous_identity_terminal
-                .as_ref()
-                .map(PreviousIdentityTerminal::service_and_catalog),
-            metadata.service_id().as_str(),
-            metadata.generation(),
-        )?;
+        let previous_identity_terminal = if validate_previous_identity_terminal {
+            let previous = match c3.latest_durable_prior_boot_clear()? {
+                Some(clear) => Some(PreviousIdentityTerminal::PriorBootCleared(clear)),
+                None => c3
+                    .latest_durable_normal_exit_scope_snapshot()?
+                    .map(PreviousIdentityTerminal::NormalExit),
+            };
+            validate_previous_launch_catalog(
+                previous
+                    .as_ref()
+                    .map(PreviousIdentityTerminal::service_and_catalog),
+                metadata.service_id().as_str(),
+                metadata.generation(),
+            )?;
+            previous
+        } else {
+            None
+        };
         Ok(Self {
             c3,
             metadata,
             reservation_attempted: false,
             #[cfg(not(linux_dev_preview_smoke))]
             _task24_data_journal: task24_data_journal,
+            #[cfg(linux_boot_identity_runtime)]
+            validate_previous_identity_terminal,
             #[cfg(linux_boot_identity_runtime)]
             previous_identity_terminal,
         })
@@ -214,6 +228,17 @@ fn identity_c3_data_root<'a, Root>(
     } else {
         Ok(None)
     }
+}
+
+#[cfg(linux_boot_identity_runtime)]
+fn should_validate_previous_identity_terminal(
+    release_build: bool,
+    verified_identity_receiver: bool,
+) -> bool {
+    // Developer Preview retains its existing C1/C3 validation behavior.
+    // In release, only the Mount-verified Identity receiver runs the extra
+    // C1 previous-terminal checks; generic release services leave them to C3.
+    !release_build || verified_identity_receiver
 }
 
 fn validate_identity_c3_data_root(
@@ -365,8 +390,12 @@ impl SystemServiceLaunchOwner for LinuxBootServiceOwner {
         #[cfg(linux_boot_identity_runtime)]
         let previous_identity_terminal = {
             let previous = self.previous_identity_terminal.take();
-            validate_previous_launch_generation(previous.as_ref(), generation)
-                .map_err(|_| ReservationError::Unavailable)?;
+            validate_previous_launch_generation_for_policy(
+                previous.as_ref(),
+                generation,
+                self.validate_previous_identity_terminal,
+            )
+            .map_err(|_| ReservationError::Unavailable)?;
             previous
         };
         Ok(LinuxBootServiceLifecycle {
@@ -457,10 +486,23 @@ fn validate_previous_launch_generation(
     previous: Option<&PreviousIdentityTerminal>,
     current_generation: std::num::NonZeroU64,
 ) -> io::Result<()> {
+    validate_previous_launch_generation_for_policy(previous, current_generation, true)
+}
+
+#[cfg(linux_boot_identity_runtime)]
+fn validate_previous_launch_generation_for_policy(
+    previous: Option<&PreviousIdentityTerminal>,
+    current_generation: std::num::NonZeroU64,
+    validate_previous_terminal: bool,
+) -> io::Result<()> {
     // The C3 API returns None only for a fully validated genesis-only
     // journal, whose first launch must use generation one.
     let previous_generation = previous.map(PreviousIdentityTerminal::generation);
-    if validate_previous_generation_number(previous_generation, current_generation.get()) {
+    if validate_previous_generation_if_required(
+        validate_previous_terminal,
+        previous_generation,
+        current_generation.get(),
+    ) {
         Ok(())
     } else {
         Err(io::Error::new(
@@ -468,6 +510,16 @@ fn validate_previous_launch_generation(
             "C3 previous terminal is not bound to this launch generation",
         ))
     }
+}
+
+#[cfg(linux_boot_identity_runtime)]
+fn validate_previous_generation_if_required(
+    validate_previous_terminal: bool,
+    previous_generation: Option<u64>,
+    current_generation: u64,
+) -> bool {
+    !validate_previous_terminal
+        || validate_previous_generation_number(previous_generation, current_generation)
 }
 
 #[cfg(linux_boot_identity_runtime)]
@@ -486,8 +538,9 @@ fn validate_previous_generation_number(previous_generation: Option<u64>, current
 ))]
 mod previous_launch_generation_tests {
     use super::{
-        identity_c3_data_root, validate_generic_boot_service_receiver,
-        validate_identity_c3_data_root, validate_previous_generation_number,
+        identity_c3_data_root, should_validate_previous_identity_terminal,
+        validate_generic_boot_service_receiver, validate_identity_c3_data_root,
+        validate_previous_generation_if_required, validate_previous_generation_number,
         validate_previous_launch_catalog, TASK24_IDENTITY_PACKAGE_ID,
     };
     use std::num::NonZeroU64;
@@ -499,6 +552,43 @@ mod previous_launch_generation_tests {
         assert!(validate_previous_generation_number(Some(1), 2));
         assert!(!validate_previous_generation_number(Some(1), 3));
         assert!(!validate_previous_generation_number(Some(u64::MAX), 1));
+    }
+
+    #[test]
+    fn prior_terminal_checks_are_limited_to_dev_and_verified_release_identity() {
+        let development_generic = should_validate_previous_identity_terminal(false, false);
+        let development_identity = should_validate_previous_identity_terminal(false, true);
+        let generic_release = should_validate_previous_identity_terminal(true, false);
+        let verified_release_identity = should_validate_previous_identity_terminal(true, true);
+
+        assert!(development_generic);
+        assert!(development_identity);
+        assert!(!generic_release);
+        assert!(verified_release_identity);
+
+        // C3 owns the ClearedAndAbsent generation transition for generic
+        // release services. The Identity-only previous-terminal gate must
+        // leave that already validated next generation alone.
+        assert!(validate_previous_generation_if_required(
+            generic_release,
+            Some(7),
+            8,
+        ));
+        assert!(validate_previous_generation_if_required(
+            development_generic,
+            Some(7),
+            8,
+        ));
+        assert!(validate_previous_generation_if_required(
+            verified_release_identity,
+            Some(7),
+            8,
+        ));
+        assert!(!validate_previous_generation_if_required(
+            verified_release_identity,
+            Some(7),
+            9,
+        ));
     }
 
     #[test]
@@ -689,6 +779,7 @@ pub(super) fn authenticate_boot_service<'package>(
         report,
         package,
         task24_data_root,
+        false,
         #[cfg(feature = "system-service-readiness")]
         identity_listener,
     )
@@ -700,11 +791,17 @@ fn authenticate_boot_service_inner<'package>(
     report: &ArtifactPreflightReport,
     package: VerifiedServicePackageBinding<'package>,
     task24_data_root: Option<&SelectedDataRoot>,
+    verified_identity_receiver: bool,
     #[cfg(feature = "system-service-readiness")] identity_listener: Option<
         IdentityListenerHandoff<'_>,
     >,
 ) -> io::Result<AuthenticatedBootService<'package>> {
-    let mut owner = LinuxBootServiceOwner::new(package_store, catalog, task24_data_root)?;
+    let mut owner = LinuxBootServiceOwner::new(
+        package_store,
+        catalog,
+        task24_data_root,
+        verified_identity_receiver,
+    )?;
     super::log_pid1_stderr(format_args!(
         "nagi-init: C3 boot slot journal opened backing={}",
         if catalog.descriptor().package_id() == TASK24_IDENTITY_PACKAGE_ID
@@ -789,6 +886,7 @@ pub(super) fn authenticate_verified_identity_boot_service<'package>(
         report,
         package,
         Some(&selected_data_root),
+        true,
         Some(identity_listener),
     )?;
     authenticated.verified_identity_data = Some(retained_data);
