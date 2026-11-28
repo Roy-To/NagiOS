@@ -1,7 +1,5 @@
-//! Receive package inputs from the trusted Linux boot stage that execs PID 1.
-//! The stage retains its selected writable package-store directory as fd 3
-//! and supplies the signed catalog as fd 4. Init pins the catalog signer in
-//! its build and closes both descriptor slots to subsequent execs.
+//! Read the release boot package store and catalog from the initramfs.
+//! The development boot stage supplies them as inherited FDs 3 and 4.
 
 #[cfg(all(linux_task24_owner_co_location, not(nagi_release_build)))]
 use nagi_system_service_launch::VerifiedBootReadyPlan;
@@ -13,18 +11,31 @@ use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
+#[cfg(not(nagi_release_build))]
 use std::os::fd::{FromRawFd, RawFd};
 
 const BOOT_CATALOG_PUBLIC_KEY: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/linux-boot-catalog-public-key"));
+#[cfg(nagi_release_build)]
+const PRODUCT_KEY: &[u8; 32] = include_bytes!("../../../release/linux-0.1/public/ed25519.raw");
+#[cfg(any(nagi_release_build, test))]
+const RELEASE_PACKAGE_STORE: &str = "package-store";
+#[cfg(any(nagi_release_build, test))]
+const RELEASE_CATALOG: &str = "catalog.bin";
+#[cfg(not(nagi_release_build))]
 const PACKAGE_STORE_FD: RawFd = 3;
+#[cfg(not(nagi_release_build))]
 const SIGNED_CATALOG_FD: RawFd = 4;
 #[cfg(all(linux_task24_owner_co_location, not(nagi_release_build)))]
 const SIGNED_READY_PLAN_FD: RawFd = 5;
+#[cfg(not(nagi_release_build))]
 const F_GETFD: i32 = 1;
+#[cfg(not(nagi_release_build))]
 const F_SETFD: i32 = 2;
+#[cfg(not(nagi_release_build))]
 const FD_CLOEXEC: i32 = 1;
 
+#[cfg(not(nagi_release_build))]
 unsafe extern "C" {
     fn fcntl(fd: RawFd, command: i32, ...) -> i32;
 }
@@ -43,10 +54,48 @@ pub(super) struct BootCatalogInputs {
 }
 
 pub(super) fn boot_catalog_public_key() -> Result<&'static [u8; 32], &'static str> {
-    <&[u8; 32]>::try_from(BOOT_CATALOG_PUBLIC_KEY).map_err(|_| "boot_catalog_key_unconfigured")
+    let key = <&[u8; 32]>::try_from(BOOT_CATALOG_PUBLIC_KEY)
+        .map_err(|_| "boot_catalog_key_unconfigured")?;
+    #[cfg(nagi_release_build)]
+    if key != PRODUCT_KEY {
+        return Err("boot_catalog_product_anchor_mismatch");
+    }
+    Ok(key)
 }
 
 impl BootPackageInputs {
+    #[cfg(nagi_release_build)]
+    pub(super) fn open_release() -> Result<Self, &'static str> {
+        let key = boot_catalog_public_key()?;
+        let root = File::open("/").map_err(|_| "boot_initramfs_root_unavailable")?;
+        Self::open_release_at(&root, key)
+    }
+
+    #[cfg(any(nagi_release_build, test))]
+    pub(super) fn open_release_at(root: &File, key: &[u8; 32]) -> Result<Self, &'static str> {
+        let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NONBLOCK;
+        let resolve = ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_XDEV;
+        let directory = openat2(
+            root,
+            RELEASE_PACKAGE_STORE,
+            flags | OFlags::DIRECTORY,
+            Mode::empty(),
+            resolve,
+        )
+        .map_err(|_| "boot_package_store_path_unavailable")?;
+        let catalog = openat2(root, RELEASE_CATALOG, flags, Mode::empty(), resolve)
+            .map_err(|_| "boot_catalog_path_unavailable")?;
+        let catalogs = verify_catalog(File::from(catalog), key)?;
+        if &catalogs.catalog.package_signing_public_key() != key {
+            return Err("boot_package_product_anchor_mismatch");
+        }
+        Ok(Self {
+            directory: File::from(directory),
+            catalogs,
+        })
+    }
+
+    #[cfg(not(nagi_release_build))]
     pub(super) fn take_inherited() -> Result<Self, &'static str> {
         let key = boot_catalog_public_key()?;
         let directory = take_boot_descriptor(PACKAGE_STORE_FD);
@@ -54,42 +103,50 @@ impl BootPackageInputs {
         #[cfg(all(linux_task24_owner_co_location, not(nagi_release_build)))]
         let ready_plan = take_boot_descriptor(SIGNED_READY_PLAN_FD).ok();
         let directory = directory?;
-        let catalog = catalog?;
-        if !catalog.metadata().is_ok_and(|metadata| metadata.is_file()) {
-            return Err("boot_catalog_file_unavailable");
-        }
-        let mut bytes = Vec::new();
-        catalog
-            .take((MAX_SIGNED_BOOT_CATALOG_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map_err(|_| "boot_catalog_read_failed")?;
-        let catalog = VerifiedBootCatalog::verify(&bytes, key)
-            .map_err(|_| "boot_catalog_verification_failed")?;
-        #[cfg(target_arch = "x86_64")]
-        let recovery_catalog =
-            nagi_system_service_recovery_contract::VerifiedRecoveryBootCatalog::verify(&bytes)
-                .map_err(|_| "boot_recovery_catalog_verification_failed")?;
-        #[cfg(all(linux_task24_owner_co_location, not(nagi_release_build)))]
-        let ready_plan = ready_plan.and_then(|file| match verify_ready_input(file, &catalog) {
-            Ok(plan) => Some(plan),
-            Err(error) => {
-                super::log_pid1_stderr(format_args!(
-                    "nagi-init: development READY plan unavailable ({error})"
-                ));
-                None
-            }
-        });
+        let catalogs = verify_catalog(catalog?, key)?;
+        #[cfg(linux_task24_owner_co_location)]
+        let catalogs = BootCatalogInputs {
+            ready_plan: ready_plan.and_then(|file| {
+                match verify_ready_input(file, &catalogs.catalog) {
+                    Ok(plan) => Some(plan),
+                    Err(error) => {
+                        super::log_pid1_stderr(format_args!(
+                            "nagi-init: development READY plan unavailable ({error})"
+                        ));
+                        None
+                    }
+                }
+            }),
+            ..catalogs
+        };
         Ok(Self {
             directory,
-            catalogs: BootCatalogInputs {
-                catalog,
-                #[cfg(all(linux_task24_owner_co_location, not(nagi_release_build)))]
-                ready_plan,
-                #[cfg(target_arch = "x86_64")]
-                recovery_catalog,
-            },
+            catalogs,
         })
     }
+}
+
+fn verify_catalog(file: File, key: &[u8; 32]) -> Result<BootCatalogInputs, &'static str> {
+    if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+        return Err("boot_catalog_file_unavailable");
+    }
+    let mut bytes = Vec::new();
+    file.take((MAX_SIGNED_BOOT_CATALOG_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "boot_catalog_read_failed")?;
+    let catalog =
+        VerifiedBootCatalog::verify(&bytes, key).map_err(|_| "boot_catalog_verification_failed")?;
+    #[cfg(target_arch = "x86_64")]
+    let recovery_catalog =
+        nagi_system_service_recovery_contract::VerifiedRecoveryBootCatalog::verify(&bytes)
+            .map_err(|_| "boot_recovery_catalog_verification_failed")?;
+    Ok(BootCatalogInputs {
+        catalog,
+        #[cfg(all(linux_task24_owner_co_location, not(nagi_release_build)))]
+        ready_plan: None,
+        #[cfg(target_arch = "x86_64")]
+        recovery_catalog,
+    })
 }
 
 #[cfg(all(linux_task24_owner_co_location, not(nagi_release_build)))]
@@ -179,6 +236,7 @@ impl ArtifactPreflight for LinuxBootArtifactPreflight {
     }
 }
 
+#[cfg(not(nagi_release_build))]
 fn take_boot_descriptor(fd: RawFd) -> Result<File, &'static str> {
     // Called once at the configured PID 1 entry, before spawning threads or
     // opening other files. The boot exec contract reserves both descriptors.
