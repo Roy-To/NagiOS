@@ -327,34 +327,43 @@ mod tests {
         }
     }
 
+    fn key(code: u16) -> InputEvent {
+        InputEvent {
+            event_type: INPUT_EVENT_KEY,
+            code,
+            value: 1,
+        }
+    }
+
+    fn keys_to_logout(model: &mut ShellModel) -> Vec<u16> {
+        let mut keys = Vec::new();
+        loop {
+            assert_eq!(model.on_key(key(INPUT_KEY_TAB)), ShellAction::Redraw);
+            keys.push(INPUT_KEY_TAB);
+            let action = model.on_key(key(INPUT_KEY_ENTER));
+            if action == ShellAction::Logout {
+                keys.push(INPUT_KEY_ENTER);
+                break keys;
+            }
+            assert!(matches!(action, ShellAction::Launch(_)));
+        }
+    }
+
     fn logout_keys() -> Vec<u16> {
-        let app_count =
-            1 + usize::from(cfg!(all(
-                linux_task24_calendar_app,
-                not(nagi_release_build)
-            ))) + usize::from(cfg!(all(
-                target_os = "linux",
-                target_arch = "x86_64",
-                feature = "linux-files-desktop",
-                not(nagi_release_build)
-            )));
-        let mut keys = vec![INPUT_KEY_TAB; app_count];
-        keys.push(INPUT_KEY_ENTER);
-        keys
+        keys_to_logout(&mut ShellModel::new(nagi_localization::Locale::EnUs))
+    }
+
+    fn logout_tab_count() -> usize {
+        logout_keys().len() - 1
     }
 
     #[test]
     fn starts_notes_twice_before_logout() {
         let mut console = FakeConsole {
-            keys: [
-                INPUT_KEY_ENTER,
-                INPUT_KEY_ENTER,
-                INPUT_KEY_TAB,
-                #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
-                INPUT_KEY_TAB,
-                INPUT_KEY_ENTER,
-            ]
-            .into(),
+            keys: [INPUT_KEY_ENTER, INPUT_KEY_ENTER]
+                .into_iter()
+                .chain(logout_keys())
+                .into(),
             ..Default::default()
         };
         let mut frames_at_launch = Vec::new();
@@ -375,13 +384,7 @@ mod tests {
         .unwrap();
         assert_eq!(exit, ShellExit::Logout);
         assert_eq!(frames_at_launch, [1, 2]);
-        assert_eq!(
-            console.frames,
-            4 + usize::from(cfg!(all(
-                linux_task24_calendar_app,
-                not(nagi_release_build)
-            )))
-        );
+        assert_eq!(console.frames, 3 + logout_tab_count());
     }
 
     #[test]
@@ -522,14 +525,18 @@ mod tests {
     #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
     #[test]
     fn calendar_close_returns_to_the_launcher_and_logout_stays_available() {
+        let mut model = ShellModel::new(nagi_localization::Locale::EnUs);
+        assert_eq!(model.on_key(key(INPUT_KEY_TAB)), ShellAction::Redraw);
+        assert_eq!(
+            model.on_key(key(INPUT_KEY_ENTER)),
+            ShellAction::Launch(AppId::Calendar)
+        );
+        let logout_keys = keys_to_logout(&mut model);
         let mut console = FakeConsole {
-            keys: [
-                INPUT_KEY_TAB,
-                INPUT_KEY_ENTER,
-                INPUT_KEY_TAB,
-                INPUT_KEY_ENTER,
-            ]
-            .into(),
+            keys: [INPUT_KEY_TAB, INPUT_KEY_ENTER]
+                .into_iter()
+                .chain(logout_keys.iter().copied())
+                .into(),
             ..Default::default()
         };
         let mut launched = Vec::new();
@@ -549,7 +556,7 @@ mod tests {
         .unwrap();
         assert_eq!(launched, [AppId::Calendar]);
         assert_eq!(exit, ShellExit::Logout);
-        assert_eq!(console.frames, 4);
+        assert_eq!(console.frames, 2 + logout_keys.len() - 1);
     }
 
     #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
