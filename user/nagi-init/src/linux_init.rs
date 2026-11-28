@@ -1785,8 +1785,15 @@ impl LinuxExecutionIdentity {
         gid: APP_FILES_GID,
     };
 
+    const APP_NOTES: Self = Self {
+        uid: APP_NOTES_UID,
+        gid: APP_NOTES_GID,
+    };
+
     fn for_application(app_id: nagi_model::AppId) -> Option<Self> {
-        if app_id == nagi_model::AppId::from_identifier(b"com.nagi.notes") {
+        if app_id == nagi_model::AppId::from_identifier(b"org.nagi.notes") {
+            Some(Self::APP_NOTES)
+        } else if app_id == nagi_model::AppId::from_identifier(b"com.nagi.notes") {
             Some(Self::DEV_NOTES_DESKTOP)
         } else if app_id == nagi_model::AppId::from_identifier(b"org.nagi.files") {
             Some(Self::APP_FILES)
@@ -8146,6 +8153,8 @@ const DEV_NOTES_DESKTOP_UID: u32 = 65_533;
 const DEV_NOTES_DESKTOP_GID: u32 = 65_533;
 const APP_FILES_UID: u32 = crate::profile_volume_notes_owner::USER_FILES_APP_UID;
 const APP_FILES_GID: u32 = crate::profile_volume_notes_owner::USER_FILES_APP_GID;
+const APP_NOTES_UID: u32 = crate::profile_volume_notes_owner::NOTES_APP_UID;
+const APP_NOTES_GID: u32 = crate::profile_volume_notes_owner::NOTES_APP_GID;
 #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
 const DEV_INPUT_PATH: &str = "/run/nagi/dev-service.runtime";
 #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
@@ -13033,6 +13042,24 @@ mod service_action_bridge_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn product_and_development_notes_use_distinct_process_identities() {
+        let product_notes = nagi_model::AppId::from_identifier(b"org.nagi.notes");
+        let development_notes = nagi_model::AppId::from_identifier(b"com.nagi.notes");
+        assert_eq!(
+            LinuxExecutionIdentity::for_application(product_notes),
+            Some(LinuxExecutionIdentity::APP_NOTES)
+        );
+        assert_eq!(
+            LinuxExecutionIdentity::for_application(development_notes),
+            Some(LinuxExecutionIdentity::DEV_NOTES_DESKTOP)
+        );
+        assert_ne!(
+            LinuxExecutionIdentity::APP_NOTES,
+            LinuxExecutionIdentity::DEV_NOTES_DESKTOP
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
