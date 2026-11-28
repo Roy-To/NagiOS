@@ -128,6 +128,14 @@ impl DevelopmentBootVolumeIdentity {
     }
 }
 
+fn release_data_notes_root_identity_sha256(filesystem_uuid: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"nagi-notes-app-root-selected-release-data-v1\0");
+    hasher.update((filesystem_uuid.len() as u64).to_le_bytes());
+    hasher.update(filesystem_uuid.as_bytes());
+    hasher.finalize().into()
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ReleaseDataMountIdentity {
     filesystem_uuid: String,
@@ -151,23 +159,36 @@ enum BootVolumeIdentityKind {
 #[derive(Clone)]
 pub(crate) struct BootVolumeIdentity {
     pub(crate) mount_id: u64,
+    notes_app_root_data_identity_sha256: [u8; 32],
     kind: BootVolumeIdentityKind,
 }
 
 impl BootVolumeIdentity {
     #[cfg(not(nagi_release_build))]
     fn from_development(identity: DevelopmentBootVolumeIdentity) -> Self {
+        let notes_app_root_data_identity_sha256 = *identity.notes_app_root_data_identity_sha256();
         Self {
             mount_id: identity.mount_id,
+            notes_app_root_data_identity_sha256,
             kind: BootVolumeIdentityKind::Development(identity),
         }
     }
 
     fn from_release_data(identity: ReleaseDataMountIdentity) -> Self {
+        // The verified filesystem UUID is stable across boots. Device numbers
+        // and mount IDs are checked for the live mount but must not alter the
+        // durable Notes app-root identity.
+        let notes_app_root_data_identity_sha256 =
+            release_data_notes_root_identity_sha256(&identity.filesystem_uuid);
         Self {
             mount_id: identity.mount_id,
+            notes_app_root_data_identity_sha256,
             kind: BootVolumeIdentityKind::ReleaseData(identity),
         }
+    }
+
+    fn notes_app_root_data_identity_sha256(&self) -> &[u8; 32] {
+        &self.notes_app_root_data_identity_sha256
     }
 
     fn release_data(&self) -> Option<&ReleaseDataMountIdentity> {
@@ -987,6 +1008,10 @@ mod tests {
         assert_eq!((after.dev(), after.ino()), (before.dev(), before.ino()));
         assert_eq!(boot_volume.identity.mount_id, 42);
         assert_eq!(
+            boot_volume.identity.notes_app_root_data_identity_sha256(),
+            &release_data_notes_root_identity_sha256("12345678-1234-4234-8234-123456789abc")
+        );
+        assert_eq!(
             boot_volume.verified_identity_paths().unwrap(),
             (Path::new("accounts"), Path::new("identity/snapshots"))
         );
@@ -1004,5 +1029,18 @@ mod tests {
         owners.end().unwrap();
         drop(owners);
         fs::remove_dir(path).unwrap();
+    }
+
+    #[test]
+    fn release_data_notes_root_identity_is_stable_and_bound_to_filesystem_uuid() {
+        let uuid = "12345678-1234-4234-8234-123456789abc";
+        assert_eq!(
+            release_data_notes_root_identity_sha256(uuid),
+            release_data_notes_root_identity_sha256(uuid)
+        );
+        assert_ne!(
+            release_data_notes_root_identity_sha256(uuid),
+            release_data_notes_root_identity_sha256("87654321-4321-4321-8321-cba987654321")
+        );
     }
 }
