@@ -41,8 +41,8 @@ NDP-03の生成物と接続し、NDP-11で同じ検証経路を使う。host成�
 
 未実施（このため状態はDONEにしない）:
 
-- Stage 3（Nagi target）の受入。何も試さずPASSを返す実装はない。
-- 実`nagi-pkg`環境での確認と、実PT-01 scanner接続。
+- Stage 3（Nagi target）の受入は未実施。何も試さずPASSを返す実装はない。
+- 実`nagi-pkg`環境での確認と、実PT-01 scanner接続は未実施。
 - host成功はNagi install/GUI成功ではない。
 
 この状態（PARTIAL扱い）はCore Developerからrunnerへの委任に基づくPROVISIONALな判断であり、承認済みではない。根拠が揃うまで実際より低い状態に保つ。記録は[評価README](../../../../tests/developer-platform/evaluation/README.md)のPROVISIONAL節にもある。整合は`tests/developer-platform/evaluation/test_task_doc_status.py`が検査する。

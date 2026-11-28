@@ -258,8 +258,11 @@ The runner itself has no check counter.
   but Stage 3 (Nagi target) acceptance, the real `nagi-pkg` environment and the real PT-01
   scanner are not done, so DONE is not allowed; keeping the status below the evidence is
   small, reversible and widens no safety boundary. `test_task_doc_status.py` checks that
-  the status line is PARTIAL (not NOT STARTED, not DONE), that every cited file exists, and
-  that "Stage 3 / target acceptance not done" is stated. When the owners decide otherwise,
+  the status line is PARTIAL (not NOT STARTED, not DONE), that every cited file exists
+  inside the repository (after resolving `..` and symlinks; the temporary copy also refuses
+  sources outside the repository and destinations outside the copy root), and that
+  "Stage 3 / Nagi target acceptance 未実施" and "real `nagi-pkg` / PT-01 scanner 未実施" are
+  each stated within one bullet. When the owners decide otherwise,
   replace the doc's status line and evidence section; the test's `REQUIRED_EVIDENCE` table
   is the only data to adjust.
 
