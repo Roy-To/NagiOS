@@ -5,10 +5,10 @@
 
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 
+use crate::VerifiedDataRoot;
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
 
@@ -197,6 +197,74 @@ impl BootVolumeInput {
         }
     }
 
+    pub(crate) fn from_verified_data_root(root: VerifiedDataRoot) -> Self {
+        let (
+            directory,
+            filesystem_uuid,
+            device_rdev,
+            device_major,
+            device_minor,
+            mount_id,
+            accounts_path,
+            snapshots_path,
+        ) = root.into_parts();
+        Self {
+            directory,
+            identity: BootVolumeIdentity::from_release_data(ReleaseDataMountIdentity {
+                filesystem_uuid,
+                device_rdev,
+                device_major,
+                device_minor,
+                mount_id,
+                accounts_path,
+                snapshots_path,
+            }),
+        }
+    }
+
+    pub(crate) fn verified_identity_paths(&self) -> io::Result<(&Path, &Path)> {
+        let identity = self.identity.release_data().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "verified release Data selection is unavailable",
+            )
+        })?;
+        Ok((
+            Path::new(&identity.accounts_path),
+            Path::new(&identity.snapshots_path),
+        ))
+    }
+
+    /// Open C1's account verifier and snapshot directory only at paths from
+    /// the same release selection that established this root FD.
+    pub(crate) fn verified_identity_inputs(&self) -> io::Result<(File, LinuxAccountVerifier)> {
+        let (accounts, snapshots) = self.verified_identity_paths()?;
+        self.identity_inputs(accounts, snapshots)
+    }
+
+    /// Release boot always uses paths bound to the verified Data selection.
+    /// Development callers may supply their existing fixed fixture paths.
+    pub(crate) fn identity_inputs_for_boot(
+        &self,
+        accounts: &Path,
+        snapshots: &Path,
+    ) -> io::Result<(File, LinuxAccountVerifier)> {
+        let (accounts, snapshots) = self.identity_paths_for_boot(accounts, snapshots)?;
+        self.identity_inputs(accounts, snapshots)
+    }
+
+    fn identity_paths_for_boot<'a>(
+        &'a self,
+        accounts: &'a Path,
+        snapshots: &'a Path,
+    ) -> io::Result<(&'a Path, &'a Path)> {
+        if self.identity.release_data().is_some() {
+            self.verified_identity_paths()
+        } else {
+            Ok((accounts, snapshots))
+        }
+    }
+
     /// Retain the volume already selected by the mount owner for boot-time
     /// identity inputs. The mount owner still controls its lifetime.
     pub(crate) fn selected_data_root(&self) -> io::Result<SelectedDataRoot> {
@@ -211,7 +279,7 @@ impl BootVolumeInput {
         })
     }
 
-    pub(crate) fn identity_inputs(
+    fn identity_inputs(
         &self,
         accounts: &Path,
         snapshots: &Path,
@@ -233,145 +301,6 @@ impl BootVolumeInput {
             })?;
         Ok((directory, verifier))
     }
-}
-
-/// A root directory FD produced only after the release Data selection and
-/// mount have both been verified. The FD establishes mount containment only;
-/// C1 caller, Session, profile, and ObjectId authorization remain separate.
-pub(crate) struct VerifiedDataRoot {
-    directory: File,
-    identity: ReleaseDataMountIdentity,
-}
-
-impl VerifiedDataRoot {
-    pub(crate) fn from_verified_mount(
-        directory: File,
-        selection: &nagi_data_boot_selection::VerifiedDataBootSelection<'_>,
-        device_rdev: u64,
-        device_major: u32,
-        device_minor: u32,
-        mount_id: u64,
-    ) -> io::Result<Self> {
-        if selection.mode() != nagi_data_boot_selection::SelectionMode::Identity
-            || !is_canonical_filesystem_uuid(selection.filesystem_uuid())
-            || device_rdev == 0
-            || mount_id == 0
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "release Data mount identity is incomplete",
-            ));
-        }
-        let accounts_path = checked_selection_path(selection.accounts_path())?;
-        let snapshots_path = checked_selection_path(selection.snapshots_path())?;
-        let metadata = directory.metadata()?;
-        if !metadata.is_dir() || metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "verified Data root is not an owner-controlled directory",
-            ));
-        }
-        let identity = ReleaseDataMountIdentity {
-            filesystem_uuid: selection.filesystem_uuid().to_owned(),
-            device_rdev,
-            device_major,
-            device_minor,
-            mount_id,
-            accounts_path,
-            snapshots_path,
-        };
-        Ok(Self {
-            directory,
-            identity,
-        })
-    }
-
-    #[cfg(test)]
-    fn from_verified_parts(
-        directory: File,
-        identity: ReleaseDataMountIdentity,
-    ) -> io::Result<Self> {
-        let metadata = directory.metadata()?;
-        if !metadata.is_dir() || metadata.mode() & 0o022 != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "verified Data root is not an owner-controlled directory",
-            ));
-        }
-        Ok(Self {
-            directory,
-            identity,
-        })
-    }
-
-    pub(crate) fn as_fd(&self) -> BorrowedFd<'_> {
-        self.directory.as_fd()
-    }
-
-    /// Give another boot-local owner the same verified mount root while this
-    /// value and the mount owner remain live.
-    pub(crate) fn try_clone(&self) -> io::Result<Self> {
-        Ok(Self {
-            directory: self.directory.try_clone()?,
-            identity: self.identity.clone(),
-        })
-    }
-
-    pub(crate) fn filesystem_uuid(&self) -> &str {
-        &self.identity.filesystem_uuid
-    }
-
-    pub(crate) fn device_rdev(&self) -> u64 {
-        self.identity.device_rdev
-    }
-
-    pub(crate) fn device_major_minor(&self) -> (u32, u32) {
-        (self.identity.device_major, self.identity.device_minor)
-    }
-
-    pub(crate) fn mount_id(&self) -> u64 {
-        self.identity.mount_id
-    }
-
-    pub(crate) fn accounts_path(&self) -> &Path {
-        Path::new(&self.identity.accounts_path)
-    }
-
-    pub(crate) fn snapshots_path(&self) -> &Path {
-        Path::new(&self.identity.snapshots_path)
-    }
-
-    pub(crate) fn into_boot_volume_input(self) -> BootVolumeInput {
-        BootVolumeInput {
-            directory: self.directory,
-            identity: BootVolumeIdentity::from_release_data(self.identity),
-        }
-    }
-}
-
-fn is_canonical_filesystem_uuid(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| match index {
-            8 | 13 | 18 | 23 => byte == b'-',
-            _ => byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
-        })
-}
-
-fn checked_selection_path(value: &str) -> io::Result<String> {
-    let path = Path::new(value);
-    if value.is_empty()
-        || value.contains('\0')
-        || path.is_absolute()
-        || path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "release Data selection path is not a canonical relative path",
-        ));
-    }
-    Ok(value.to_owned())
 }
 
 /// Issued together from the verified Notes attachment and the exact
@@ -859,7 +788,7 @@ pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> AppStorageOwne
 }
 
 pub(crate) fn pending_with_verified_data_root(root: VerifiedDataRoot) -> AppStorageOwners {
-    pending_with_boot_volume(root.into_boot_volume_input())
+    pending_with_boot_volume(BootVolumeInput::from_verified_data_root(root))
 }
 
 #[cfg(test)]
@@ -935,7 +864,17 @@ mod tests {
             accounts_path: "accounts".to_owned(),
             snapshots_path: "identity/snapshots".to_owned(),
         };
-        let root = VerifiedDataRoot::from_verified_parts(directory, identity).unwrap();
+        let root = VerifiedDataRoot::from_verified_parts_for_test(
+            directory,
+            identity.filesystem_uuid,
+            identity.device_rdev,
+            identity.device_major,
+            identity.device_minor,
+            identity.mount_id,
+            identity.accounts_path,
+            identity.snapshots_path,
+        )
+        .unwrap();
         let clone = root.try_clone().unwrap();
         assert_eq!(
             root.filesystem_uuid(),
@@ -948,11 +887,11 @@ mod tests {
         assert_eq!(root.snapshots_path(), Path::new("identity/snapshots"));
         assert_eq!(clone.mount_id(), root.mount_id());
         assert_eq!(clone.device_rdev(), root.device_rdev());
-        let root_metadata = root.directory.metadata().unwrap();
-        let clone_metadata = clone.directory.metadata().unwrap();
+        let root_metadata = rustix::fs::fstat(root.as_fd()).unwrap();
+        let clone_metadata = rustix::fs::fstat(clone.as_fd()).unwrap();
         assert_eq!(
-            (clone_metadata.dev(), clone_metadata.ino()),
-            (root_metadata.dev(), root_metadata.ino())
+            (clone_metadata.st_dev, clone_metadata.st_ino),
+            (root_metadata.st_dev, root_metadata.st_ino)
         );
 
         let mut owners = pending_with_verified_data_root(root);
@@ -961,6 +900,16 @@ mod tests {
         let after = boot_volume.directory.metadata().unwrap();
         assert_eq!((after.dev(), after.ino()), (before.dev(), before.ino()));
         assert_eq!(boot_volume.identity.mount_id, 42);
+        assert_eq!(
+            boot_volume.verified_identity_paths().unwrap(),
+            (Path::new("accounts"), Path::new("identity/snapshots"))
+        );
+        assert_eq!(
+            boot_volume
+                .identity_paths_for_boot(Path::new("untrusted-accounts"), Path::new("other"))
+                .unwrap(),
+            (Path::new("accounts"), Path::new("identity/snapshots"))
+        );
         assert_eq!(
             boot_volume.identity.release_data().unwrap().device_rdev,
             0x800

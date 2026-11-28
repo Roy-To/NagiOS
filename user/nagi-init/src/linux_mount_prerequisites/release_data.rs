@@ -5,7 +5,7 @@
 //! keep services stopped if selection, candidate matching, mounting, or
 //! post-mount verification fails.
 
-use crate::profile_volume_notes_owner::VerifiedDataRoot;
+use crate::linux_init::VerifiedDataRoot;
 use nagi_data_boot_selection::{SelectionMode, VerifiedDataBootSelection};
 use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
@@ -73,6 +73,7 @@ struct SelectedBlockDevice {
 
 /// Retains the mount root until all Data-root consumers have dropped their
 /// descriptors. Field order closes the owner's root before unmounting.
+#[must_use = "retain this owner until all Data root FDs are closed and end() succeeds"]
 pub(in crate::linux_init) struct ReleaseDataMountOwner {
     root: Option<File>,
     _device: File,
@@ -202,8 +203,9 @@ impl ReleaseDataMountOwner {
         // umount fail. Never use lazy or forced unmount to bypass that owner.
         drop(self.root.take());
         self.mount.unmount()?;
+        self.verify_ended()?;
         self.ended = true;
-        self.verify_ended()
+        Ok(())
     }
 
     fn verify_ended(&self) -> Result<(), DataMountFailure> {
@@ -218,7 +220,11 @@ impl ReleaseDataMountOwner {
 
 impl Drop for ReleaseDataMountOwner {
     fn drop(&mut self) {
-        let _ = self.end();
+        if let Err(reason) = self.end() {
+            super::super::log_pid1_stderr(format_args!(
+                "nagi-init: Data mount cleanup failed ({reason})"
+            ));
+        }
     }
 }
 

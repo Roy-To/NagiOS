@@ -1576,7 +1576,7 @@ pub(super) fn open_boot_identity(
     snapshot_path: &Path,
     account_path: &Path,
 ) -> io::Result<(LinuxIdentitySnapshotStore, LinuxAccountVerifier)> {
-    let (directory, verifier) = data.identity_inputs(account_path, snapshot_path)?;
+    let (directory, verifier) = data.identity_inputs_for_boot(account_path, snapshot_path)?;
     let store = LinuxIdentitySnapshotStore::open(directory).map_err(|error| {
         io::Error::other(format!("identity snapshot directory rejected: {error:?}"))
     })?;
