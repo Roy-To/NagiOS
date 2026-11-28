@@ -213,10 +213,21 @@ mod linux_task24_calendar_keys;
 #[cfg(all(
     target_os = "linux",
     target_arch = "x86_64",
-    feature = "linux-files-desktop",
-    not(nagi_release_build)
+    any(
+        all(feature = "linux-files-desktop", not(nagi_release_build)),
+        all(feature = "linux-files-app", linux_task24_initial_login_runtime)
+    )
 ))]
 mod linux_task24_files_keys;
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "x86_64",
+    any(
+        all(feature = "linux-files-app", linux_task24_initial_login_runtime),
+        all(feature = "linux-files-desktop", not(nagi_release_build))
+    )
+))]
+mod ui_console;
 
 #[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
 mod isolated_process;

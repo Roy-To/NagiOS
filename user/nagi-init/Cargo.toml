@@ -11,6 +11,14 @@ linux-files-desktop = [
     "dep:nagi-files-c1-session-consumer",
     "nagi-files-c1-session-consumer/c1-issued-session",
 ]
+# Product Files consumer. Desktop supplies the already-authorized C1 Files
+# root; this does not enable the legacy PID 1 debug console.
+linux-files-app = [
+    "desktop-login",
+    "dep:nagi-files",
+    "dep:nagi-files-c1-session-consumer",
+    "nagi-files-c1-session-consumer/c1-issued-session",
+]
 system-service-readiness = []
 production-session = []
 linux-service-action-bridge = [

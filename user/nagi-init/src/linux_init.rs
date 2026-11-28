@@ -436,6 +436,18 @@ pub(crate) mod pid1_live_peer_supplier;
 mod linux_task24_endpoint_launch;
 
 #[cfg(all(
+    linux_task24_initial_login_runtime,
+    target_os = "linux",
+    target_arch = "x86_64",
+    any(
+        feature = "linux-files-app",
+        all(feature = "linux-files-desktop", not(nagi_release_build))
+    )
+))]
+#[path = "files_app.rs"]
+mod files_app;
+
+#[cfg(all(
     linux_task24_owner_co_location,
     target_os = "linux",
     target_arch = "x86_64",
