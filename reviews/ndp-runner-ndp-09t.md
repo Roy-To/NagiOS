@@ -65,3 +65,40 @@ NDP-REVIEW: FIX
 
 NDP-REVIEW: FIX
 
+## Round 7 — claude-opus review of a66b26537a5d
+
+差分の確認と新規テストの実行が終わったので、結論をまとめます。
+
+## NDP-09t レビュー結果
+
+**判定: P1・P2の指摘はありません。**
+
+### 目標と受入条件の確認
+- **状態行:** `NOT STARTED` を `PARTIAL（host限定、PROVISIONAL…DONEではない）` に変えています（`docs/development/co-developer-starter-kit/tasks/NDP-09_VALIDATION_ORCHESTRATOR.md:3`）。文書の中に `NOT STARTED` は残っていません。
+- **変更しない節:** task文書の差分は、状態行と末尾の新しい「実績・根拠」節（33行〜）だけです。目的・編集範囲案・実装・focused test案などの節は差分に含まれていません。
+- **根拠ファイル:** 挙げられた根拠ファイルはすべて実在します。`stages.json`、`validation/README.md`、`stage2.py`、`generated_check.py`、`validate.py`、`report.py`、各 `test_*.py`、`handover.md`、`board.md` を確認しました。
+- **記載内容と実装の一致:** 次の3点を照合し、事実と合っていました。
+  - `stages.json` で Stage 3 は `"connected": false`
+  - `stage2.py` は固定引数のclangを使い、承認済みfixtureをSHA256で照合している
+  - `report.py` に `--fixture all` がある
+- **PROVISIONALの記録:** 実績欄に「委任に基づくPROVISIONALで、承認済みではない」と書かれています。評価READMEの `### 仮定（PROVISIONAL）` 節にも、判断と理由が記録されています。
+- **テスト（`tests/developer-platform/evaluation/test_task_doc_status.py`）:** 新規テストを手元で実行し、33件すべて成功しました。
+  - 状態の値が `PARTIAL` と完全に一致すること、`DONE`・`PASS` でないことを検査しています。
+  - リンク先が実在し、リポジトリの外に出ないこと（`..` とsymlinkを解決した後）を検査しています。
+  - Stage 3・target受入と、実 `nagi-pkg`・PT-01 scanner について、「未実施」を1行の中で述べているかを検査しています。
+  - 一時コピーで状態行を `NOT STARTED` に戻すと失敗することを、`test_status_reverted_to_not_started_fails` で確認しています。
+  - 検査は実際の文書テキストに対して行われ、決め打ちやMockだけの検査ではありません。
+- **安全面:** 担当path外の変更はありません（`reviews/ndp-runner-ndp-09t.md` は既定の運用なので除外）。外部の取得や実行、`contracts/` への変更もありません。一時コピーは `tempfile` の中で作られ、コピー元とコピー先の両方が範囲内に収まるか確認しています。
+- **host成功とtarget成功の区別:** 混同はありません。実績欄に「host限定でありNagi target受入ではない」と明記されています。
+
+### P3（軽微）
+1. **README追記の位置:** `tests/developer-platform/evaluation/README.md:253`
+   - **条件:** NDP-09tの記録が、NDP-11d節（207行〜）の下の `### 仮定（PROVISIONAL）` に入っています。将来この節を探す人が、NDP-11dの仮定と取り違えるおそれがあります。
+   - **最小修正案:** 独立した `## NDP-09 task文書の状態 — NDP-09t` 節を作り、その下にPROVISIONAL小節を置く。必要なのは移動だけです。
+2. **テストの規模:** `test_task_doc_status.py` は456行あり、文書を検査するテストとしては大きめです。6ラウンド分の言い回しによるすり抜けへの対策が積み重なった結果です。すり抜けを完全には防げないことは、README（263〜268行）に限界として記載済みです。今後この方向での追加の強化はせず、現状のままで構いません。
+
+### 疑問
+ありません。
+
+NDP-REVIEW: PASS
+
