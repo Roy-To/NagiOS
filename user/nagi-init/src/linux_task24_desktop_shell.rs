@@ -1,10 +1,13 @@
-use super::super::{linux_owner_registration_console::BootOwnerConsole, NotesConsoleExit};
-#[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
-use super::calendar_console::CalendarExit;
+use super::super::NotesConsoleExit;
 #[cfg(all(feature = "linux-files-desktop", not(nagi_release_build)))]
 use super::files_console::FilesExit;
+#[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+use crate::calendar_console::CalendarExit;
 use crate::desktop_shell_model::{AppId, ShellAction, ShellModel};
+#[cfg(test)]
 use crate::ui::Painter;
+use crate::ui_console::NagiConsole;
+#[cfg(test)]
 use libnagi::InputEvent;
 use nagi_identity_session::ResolutionError;
 use notes_files_codec_candidate::NoteDocument;
@@ -16,20 +19,9 @@ mod settings;
 #[cfg(linux_task24_settings)]
 pub(super) use settings::SettingsRuntime;
 
-pub(super) trait ShellConsole {
-    fn present(&mut self, render: impl FnOnce(&mut Painter<'_>)) -> io::Result<()>;
-    fn next_key_timeout(&mut self, timeout: Duration) -> io::Result<Option<InputEvent>>;
-}
+pub(super) trait ShellConsole: NagiConsole {}
 
-impl ShellConsole for BootOwnerConsole {
-    fn present(&mut self, render: impl FnOnce(&mut Painter<'_>)) -> io::Result<()> {
-        BootOwnerConsole::present(self, render)
-    }
-
-    fn next_key_timeout(&mut self, timeout: Duration) -> io::Result<Option<InputEvent>> {
-        Ok(self.next_console_key_timeout(timeout)?.map(|key| key.event))
-    }
-}
+impl<T: NagiConsole> ShellConsole for T {}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ShellExit {
@@ -303,7 +295,7 @@ mod tests {
         frames: usize,
     }
 
-    impl ShellConsole for FakeConsole {
+    impl NagiConsole for FakeConsole {
         fn present(&mut self, render: impl FnOnce(&mut Painter<'_>)) -> io::Result<()> {
             render(&mut Painter::new(&mut vec![0; 320 * 200]));
             self.frames += 1;

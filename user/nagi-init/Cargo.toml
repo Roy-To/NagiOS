@@ -11,6 +11,10 @@ linux-files-desktop = [
     "dep:nagi-files-c1-session-consumer",
     "nagi-files-c1-session-consumer/c1-issued-session",
 ]
+# Product Calendar consumer. The normal Desktop supplies an already-issued
+# app-scoped snapshot handle; this feature does not create an app launcher or
+# alter process authorization.
+linux-calendar-app = ["desktop-login"]
 system-service-readiness = []
 production-session = []
 linux-service-action-bridge = [

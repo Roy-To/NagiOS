@@ -158,21 +158,49 @@ mod action_ipc;
 mod boot;
 #[cfg(all(
     target_os = "linux",
-    linux_task24_calendar_app,
-    not(nagi_release_build)
+    feature = "linux-calendar-app",
+    linux_task24_initial_login_runtime
 ))]
-mod calendar_editor_model;
+mod calendar_app;
 #[cfg(all(
     target_os = "linux",
-    linux_task24_calendar_app,
-    not(nagi_release_build)
+    any(
+        all(feature = "linux-calendar-app", linux_task24_initial_login_runtime),
+        all(linux_task24_calendar_app, not(nagi_release_build))
+    )
+))]
+mod calendar_console;
+#[cfg(all(
+    target_os = "linux",
+    any(
+        all(feature = "linux-calendar-app", linux_task24_initial_login_runtime),
+        all(linux_task24_calendar_app, not(nagi_release_build))
+    )
+))]
+mod calendar_editor;
+#[cfg(all(
+    target_os = "linux",
+    any(
+        all(feature = "linux-calendar-app", linux_task24_initial_login_runtime),
+        all(linux_task24_calendar_app, not(nagi_release_build))
+    )
+))]
+mod calendar_keys;
+#[cfg(all(
+    target_os = "linux",
+    any(
+        all(feature = "linux-calendar-app", linux_task24_initial_login_runtime),
+        all(linux_task24_calendar_app, not(nagi_release_build))
+    )
 ))]
 mod calendar_profile_scope;
 #[cfg(any(
     all(
         target_os = "linux",
-        linux_task24_calendar_app,
-        not(nagi_release_build)
+        any(
+            all(feature = "linux-calendar-app", linux_task24_initial_login_runtime),
+            all(linux_task24_calendar_app, not(nagi_release_build))
+        )
     ),
     all(test, target_os = "macos")
 ))]
@@ -206,17 +234,19 @@ mod desktop_shell_model;
 mod font;
 #[cfg(all(
     target_os = "linux",
-    linux_task24_calendar_app,
-    not(nagi_release_build)
-))]
-mod linux_task24_calendar_keys;
-#[cfg(all(
-    target_os = "linux",
     target_arch = "x86_64",
     feature = "linux-files-desktop",
     not(nagi_release_build)
 ))]
 mod linux_task24_files_keys;
+#[cfg(all(
+    target_os = "linux",
+    any(
+        all(feature = "linux-calendar-app", linux_task24_initial_login_runtime),
+        all(linux_task24_calendar_app, not(nagi_release_build))
+    )
+))]
+mod ui_console;
 
 #[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
 mod isolated_process;

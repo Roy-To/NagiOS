@@ -1,10 +1,11 @@
-//! The ordinary Calendar screen. The shell supplies the authenticated session.
+//! Calendar's reusable ordinary screen. Its caller supplies the authorized
+//! app-scoped snapshot and live-session checks owned by Desktop.
 
-use super::desktop_shell::ShellConsole;
-use crate::calendar_editor_model::{CalendarEditor, EditorAction};
+use crate::calendar_editor::{CalendarEditor, EditorAction};
+use crate::calendar_keys::{CalendarKey, CalendarKeys};
 use crate::calendar_session::{CalendarEdit, CalendarSession, CalendarSnapshotScope, SaveRejected};
-use crate::linux_task24_calendar_keys::{CalendarKey, CalendarKeys};
 use crate::ui::{Painter, Rect};
+use crate::ui_console::NagiConsole;
 use nagi_calendar_core::agenda::AgendaViewModel;
 use nagi_calendar_core::day_view::{list_day, DayAgendaState, DisplayPolicy};
 use nagi_calendar_core::model::{Event, Schedule};
@@ -49,10 +50,11 @@ enum Screen {
     ConfirmDelete(Event),
 }
 
-pub(crate) fn run<C: ShellConsole, I: CalendarSnapshotScope, T: RealtimeSource>(
+pub(crate) fn run<C: NagiConsole, I: CalendarSnapshotScope, T: RealtimeSource>(
     console: &mut C,
     session: &mut CalendarSession<I, T>,
     clock: &dyn RealtimeSource,
+    locale: Locale,
     mut poll_identity: impl FnMut() -> io::Result<bool>,
     mut check_session: impl FnMut() -> Result<(), ResolutionError>,
     mut notice: impl FnMut(CalendarNotice<'_>),
@@ -85,6 +87,7 @@ pub(crate) fn run<C: ShellConsole, I: CalendarSnapshotScope, T: RealtimeSource>(
             today,
             clock_missing,
             status,
+            locale,
         )
     })?;
     notice(CalendarNotice::Ready {
@@ -187,7 +190,7 @@ pub(crate) fn run<C: ShellConsole, I: CalendarSnapshotScope, T: RealtimeSource>(
                             None => ("create", CalendarEdit::Create(draft)),
                         });
                     }
-                    Err(_) => status = localized(Locale::EnUs, "calendar.invalid_edit"),
+                    Err(_) => status = localized(locale, "calendar.invalid_edit"),
                 },
                 EditorAction::Continue => {
                     status = "";
@@ -218,7 +221,7 @@ pub(crate) fn run<C: ShellConsole, I: CalendarSnapshotScope, T: RealtimeSource>(
                     return Ok(CalendarExit::StateUnknown);
                 }
                 Err(_) => {
-                    status = localized(Locale::EnUs, "calendar.save_failed");
+                    status = localized(locale, "calendar.save_failed");
                     notice(CalendarNotice::SaveFailed("not_applied"));
                 }
             }
@@ -242,12 +245,13 @@ pub(crate) fn run<C: ShellConsole, I: CalendarSnapshotScope, T: RealtimeSource>(
                 today,
                 clock_missing,
                 status,
+                locale,
             )
         })?;
     }
 }
 
-fn session_exit(result: Result<(), ResolutionError>) -> Option<CalendarExit> {
+pub(crate) fn session_exit(result: Result<(), ResolutionError>) -> Option<CalendarExit> {
     match result {
         Ok(()) => None,
         Err(ResolutionError::Ended | ResolutionError::Expired) => Some(CalendarExit::SessionEnded),
@@ -255,8 +259,9 @@ fn session_exit(result: Result<(), ResolutionError>) -> Option<CalendarExit> {
     }
 }
 
-pub(super) fn unavailable<C: ShellConsole>(
+pub(crate) fn unavailable<C: NagiConsole>(
     console: &mut C,
+    locale: Locale,
     mut poll_identity: impl FnMut() -> io::Result<bool>,
     mut check_session: impl FnMut() -> Result<(), ResolutionError>,
 ) -> io::Result<CalendarExit> {
@@ -268,7 +273,7 @@ pub(super) fn unavailable<C: ShellConsole>(
         painter.text(
             8,
             24,
-            localized(Locale::EnUs, "calendar.load_failed").as_bytes(),
+            localized(locale, "calendar.load_failed").as_bytes(),
             color(ThemeMode::Light, ColorRole::TextPrimary).to_pixel(),
         );
     })?;
@@ -290,7 +295,7 @@ pub(super) fn unavailable<C: ShellConsole>(
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct CalendarClock;
+pub(crate) struct CalendarClock;
 
 impl RealtimeSource for CalendarClock {
     fn realtime_ns(&self) -> nagi_calendar_core::Result<u64> {
@@ -300,38 +305,6 @@ impl RealtimeSource for CalendarClock {
             .map_err(|_| ClockUnavailable)?;
         // The Calendar store accepts whole Unix microseconds.
         u64::try_from(elapsed.as_micros() * 1_000).map_err(|_| ClockUnavailable)
-    }
-}
-
-pub(super) fn log_notice(notice: CalendarNotice<'_>) {
-    use super::super::log_pid1_stderr;
-    use sha2::{Digest, Sha256};
-    match notice {
-        CalendarNotice::Ready { day, events } => log_pid1_stderr(format_args!(
-            "NAGI_DEV_CALENDAR_READY events={events} date={}",
-            date_label(day)
-        )),
-        CalendarNotice::Day { day, rows } => {
-            let ids = rows
-                .iter()
-                .map(|event| event.id.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
-            log_pid1_stderr(format_args!(
-                "NAGI_DEV_CALENDAR_DAY date={} rows={} ids={ids}",
-                date_label(day),
-                rows.len()
-            ));
-        }
-        CalendarNotice::Saved { op, event, bytes } => log_pid1_stderr(format_args!(
-            "NAGI_DEV_CALENDAR_SAVED op={op} id={} bytes={} sha256={:x}",
-            event.id.as_str(),
-            bytes.len(),
-            Sha256::digest(bytes)
-        )),
-        CalendarNotice::SaveFailed(reason) => log_pid1_stderr(format_args!(
-            "NAGI_DEV_CALENDAR_SAVE_FAILED reason={reason}"
-        )),
     }
 }
 
@@ -348,9 +321,14 @@ fn time_label(time: LocalDateTime) -> String {
     format!("{:02}:{:02}", minutes / 60, minutes % 60)
 }
 
-fn schedule_label(schedule: &Schedule, day: Date, policy: &DisplayPolicy) -> String {
+fn schedule_label(
+    schedule: &Schedule,
+    day: Date,
+    policy: &DisplayPolicy,
+    locale: Locale,
+) -> String {
     if matches!(schedule, Schedule::AllDay { .. }) {
-        return localized(Locale::EnUs, "calendar.all_day").into();
+        return localized(locale, "calendar.all_day").into();
     }
     let format = || {
         let interval = policy.display_interval(schedule)?;
@@ -377,6 +355,7 @@ fn render(
     today: Date,
     clock_missing: bool,
     status: &str,
+    locale: Locale,
 ) {
     let ink = |role| color(ThemeMode::Light, role).to_pixel();
     painter.fill(Rect::new(0, 0, 320, 200), ink(ColorRole::Canvas));
@@ -388,9 +367,9 @@ fn render(
         Screen::Agenda | Screen::ConfirmDelete(_) => {
             let day = agenda.selected_date();
             let tag = if clock_missing {
-                localized(Locale::EnUs, "calendar.clock_unavailable")
+                localized(locale, "calendar.clock_unavailable")
             } else if day == today {
-                localized(Locale::EnUs, "calendar.today")
+                localized(locale, "calendar.today")
             } else {
                 ""
             };
@@ -401,7 +380,7 @@ fn render(
                 .unwrap_or(0);
             let first = selected.saturating_sub(VISIBLE - 1);
             if rows.is_empty() {
-                text(painter, 24, localized(Locale::EnUs, "calendar.empty"));
+                text(painter, 24, localized(locale, "calendar.empty"));
             }
             for (index, event) in rows.iter().enumerate().skip(first).take(VISIBLE) {
                 let y = 22 + (index - first) as i32 * 14;
@@ -413,7 +392,7 @@ fn render(
                     y,
                     &format!(
                         "{}  {}",
-                        schedule_label(&event.draft.schedule, day, policy),
+                        schedule_label(&event.draft.schedule, day, policy, locale),
                         event.draft.title
                     ),
                 );
@@ -422,9 +401,9 @@ fn render(
                 painter,
                 177,
                 if matches!(screen, Screen::ConfirmDelete(_)) {
-                    localized(Locale::EnUs, "calendar.delete_hint")
+                    localized(locale, "calendar.delete_hint")
                 } else {
-                    localized(Locale::EnUs, "calendar.agenda_hint")
+                    localized(locale, "calendar.agenda_hint")
                 },
             );
         }
@@ -443,10 +422,10 @@ fn render(
                     (2 | 4, 4) => format!("{}:{}", &value[..2], &value[2..]),
                     _ => value.clone(),
                 };
-                let label = localized(Locale::EnUs, &format!("calendar.field.{label}"));
+                let label = localized(locale, &format!("calendar.field.{label}"));
                 text(painter, y, &format!("{label}: {display}"));
             }
-            text(painter, 177, localized(Locale::EnUs, "calendar.edit_hint"));
+            text(painter, 177, localized(locale, "calendar.edit_hint"));
         }
     }
     if !status.is_empty() {
