@@ -863,28 +863,42 @@ pub(super) fn run_owner_login(
                                 );
 
                                 #[cfg(all(linux_task24_desktop_shell, not(nagi_release_build)))]
+                                let mut logout_completed = false;
+                                #[cfg(all(linux_task24_desktop_shell, not(nagi_release_build)))]
                                 let result = {
                                     use super::NotesConsoleExit;
                                     use desktop_shell::ShellExit;
                                     let mut first = Some(inputs);
-                                    #[cfg(linux_task24_settings)]
                                     let owners = std::cell::RefCell::new(&mut *owners);
                                     desktop_shell::run(
                                         console,
                                         || runtime.poll_task24_required_identity_exit(),
                                         || runtime.check_notes_session(session.lease),
+                                        || {
+                                            let mut owners = owners.try_borrow_mut().map_err(|_| {
+                                                std::io::Error::other("storage owner busy during logout")
+                                            })?;
+                                            let reason = runtime
+                                                .end_app_sessions(&issued, &mut **owners)
+                                                .map_err(|_| {
+                                                    std::io::Error::other(
+                                                        "C1 Session and app storage owner cleanup was not confirmed",
+                                                    )
+                                                })?;
+                                            logout_completed = true;
+                                            super::log_pid1_stderr(format_args!(
+                                                "NAGI_DEV_NOTES_SESSION_ENDED reason={reason:?}"
+                                            ));
+                                            Ok(())
+                                        },
                                         |app, console, locale| {
                                             #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
                                             if matches!(app, crate::desktop_shell_model::AppId::Calendar) {
                                                 use calendar_console::{CalendarClock, CalendarExit};
                                                 use crate::calendar_session::CalendarSession;
-                                                #[cfg(linux_task24_settings)]
                                                 let mut owner = owners.try_borrow_mut()
                                                     .map_err(|_| std::io::Error::other("storage owner busy"))?;
-                                                #[cfg(linux_task24_settings)]
                                                 let owners = &mut **owner;
-                                                #[cfg(not(linux_task24_settings))]
-                                                let owners = &mut *owners;
                                                 let poll = || runtime.poll_task24_required_identity_exit();
                                                 let check = || runtime.check_notes_session(session.lease);
                                                 if poll()? {
@@ -925,16 +939,9 @@ pub(super) fn run_owner_login(
                                                     ));
                                                 }
                                                 let opened = {
-                                                    #[cfg(linux_task24_settings)]
-                                                    {
-                                                        let mut owner = owners.try_borrow_mut()
-                                                            .map_err(|_| std::io::Error::other("storage owner busy"))?;
-                                                        runtime.request_files_root(session.lease, &mut **owner)
-                                                    }
-                                                    #[cfg(not(linux_task24_settings))]
-                                                    {
-                                                        runtime.request_files_root(session.lease, &mut *owners)
-                                                    }
+                                                    let mut owner = owners.try_borrow_mut()
+                                                        .map_err(|_| std::io::Error::other("storage owner busy"))?;
+                                                    runtime.request_files_root(session.lease, &mut **owner)
                                                 };
                                                 let root: AuthorizedFilesRoot = match opened {
                                                     Ok(root) => root,
@@ -960,10 +967,8 @@ pub(super) fn run_owner_login(
                                             }
                                             #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
                                             let _ = app;
-                                            #[cfg(linux_task24_settings)]
                                             let mut owner = owners.try_borrow_mut()
                                                 .map_err(|_| std::io::Error::other("storage owner busy"))?;
-                                            #[cfg(linux_task24_settings)]
                                             let owners = &mut **owner;
                                             let inputs = match first.take() {
                                                 Some(inputs) => inputs,
@@ -1029,11 +1034,20 @@ pub(super) fn run_owner_login(
                                 }
                                 #[cfg(all(linux_task24_desktop_shell, not(nagi_release_build)))]
                                 debug_assert!(draft.is_none(), "the shell retains its own drafts");
-                                if matches!(
-                                    exit,
-                                    super::NotesConsoleExit::ClosedByUser
-                                        | super::NotesConsoleExit::ClosedWithoutSave
-                                ) {
+                                #[cfg(all(linux_task24_desktop_shell, not(nagi_release_build)))]
+                                let needs_logout_cleanup = !logout_completed;
+                                #[cfg(not(all(
+                                    linux_task24_desktop_shell,
+                                    not(nagi_release_build)
+                                )))]
+                                let needs_logout_cleanup = true;
+                                if needs_logout_cleanup
+                                    && matches!(
+                                        exit,
+                                        super::NotesConsoleExit::ClosedByUser
+                                            | super::NotesConsoleExit::ClosedWithoutSave
+                                    )
+                                {
                                     match runtime.end_app_sessions(&issued, owners) {
                                         Ok(reason) => {
                                             super::log_pid1_stderr(format_args!(

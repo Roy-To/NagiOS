@@ -51,6 +51,7 @@ pub(super) fn run<C: ShellConsole>(
     console: &mut C,
     mut poll_identity: impl FnMut() -> io::Result<bool>,
     mut check_session: impl FnMut() -> Result<(), ResolutionError>,
+    mut finish_logout: impl FnMut() -> io::Result<()>,
     mut launch: impl FnMut(AppId, &mut C, nagi_localization::Locale) -> io::Result<AppExit>,
     drafts: &mut Vec<NoteDocument>,
     #[cfg(linux_task24_settings)] settings_runtime: Option<SettingsRuntime<'_>>,
@@ -156,6 +157,12 @@ pub(super) fn run<C: ShellConsole>(
             ShellAction::Redraw => console.present(|painter| model.render(painter))?,
             ShellAction::Logout => {
                 log_pid1_stderr(format_args!("NAGI_DEV_DESKTOP_LOGOUT_REQUESTED"));
+                // A successful result is the C2 handoff point: the caller must
+                // invalidate the exact C1 Session and every app-storage owner
+                // before returning to unlock. Release wiring must also attach
+                // the C3 app owner and complete exact child retirement before
+                // it can return to unlock; this Task24 path has no such owner.
+                finish_logout()?;
                 return Ok(ShellExit::Logout);
             }
             #[cfg(linux_task24_settings)]
@@ -320,6 +327,22 @@ mod tests {
         }
     }
 
+    fn logout_keys() -> Vec<u16> {
+        let app_count =
+            1 + usize::from(cfg!(all(
+                linux_task24_calendar_app,
+                not(nagi_release_build)
+            ))) + usize::from(cfg!(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                feature = "linux-files-desktop",
+                not(nagi_release_build)
+            ))) + usize::from(cfg!(linux_task24_settings));
+        let mut keys = vec![INPUT_KEY_TAB; app_count];
+        keys.push(INPUT_KEY_ENTER);
+        keys
+    }
+
     #[test]
     fn starts_notes_twice_before_logout() {
         let mut console = FakeConsole {
@@ -338,6 +361,7 @@ mod tests {
         let exit = run(
             &mut console,
             || Ok(false),
+            || Ok(()),
             || Ok(()),
             |app, console, _locale| {
                 assert_eq!(app, AppId::Notes);
@@ -361,6 +385,75 @@ mod tests {
     }
 
     #[test]
+    fn normal_logout_runs_c1_and_storage_cleanup_before_returning() {
+        use std::cell::Cell;
+
+        let cleanup_calls = Cell::new(0);
+        let session_checked = Cell::new(false);
+        let app_closed = Cell::new(false);
+        let mut console = FakeConsole {
+            keys: std::iter::once(INPUT_KEY_ENTER)
+                .chain(logout_keys())
+                .collect(),
+            ..Default::default()
+        };
+        let exit = run(
+            &mut console,
+            || Ok(false),
+            || {
+                session_checked.set(true);
+                Ok(())
+            },
+            || {
+                assert!(session_checked.get());
+                assert!(app_closed.get());
+                cleanup_calls.set(cleanup_calls.get() + 1);
+                Ok(())
+            },
+            |app, _, _locale| {
+                assert_eq!(app, AppId::Notes);
+                app_closed.set(true);
+                Ok(AppExit::Notes(NotesConsoleExit::ClosedByUser, None))
+            },
+            &mut Vec::new(),
+            #[cfg(linux_task24_settings)]
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(exit, ShellExit::Logout);
+        assert_eq!(cleanup_calls.get(), 1);
+        assert!(app_closed.get());
+    }
+
+    #[test]
+    fn failed_normal_logout_cleanup_never_returns_logout_success() {
+        use std::cell::Cell;
+
+        let cleanup_calls = Cell::new(0);
+        let mut console = FakeConsole {
+            keys: logout_keys().into(),
+            ..Default::default()
+        };
+        let result = run(
+            &mut console,
+            || Ok(false),
+            || Ok(()),
+            || {
+                cleanup_calls.set(cleanup_calls.get() + 1);
+                Err(io::Error::other("cleanup not confirmed"))
+            },
+            |_, _, _locale| panic!("failed logout must not launch another app"),
+            &mut Vec::new(),
+            #[cfg(linux_task24_settings)]
+            None,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(cleanup_calls.get(), 1);
+    }
+
+    #[test]
     fn permits_existing_cleanup_after_unsaved_close_of_ended_session() {
         use std::cell::Cell;
 
@@ -379,6 +472,7 @@ mod tests {
                     Ok(())
                 }
             },
+            || Ok(()),
             |_, _, _locale| {
                 ended.set(true);
                 Ok(AppExit::Notes(NotesConsoleExit::ClosedWithoutSave, None))
@@ -399,6 +493,7 @@ mod tests {
             &mut console,
             || Ok(true),
             || Ok(()),
+            || panic!("logout must not run after required Identity exit"),
             |_, _, _locale| panic!("no launch"),
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
@@ -413,6 +508,7 @@ mod tests {
             &mut console,
             || Ok(false),
             || Ok(()),
+            || panic!("unknown app exit must not run logout cleanup"),
             |_, _, _locale| Ok(AppExit::Notes(NotesConsoleExit::StateUnknown, None)),
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
@@ -441,6 +537,7 @@ mod tests {
             &mut console,
             || Ok(false),
             || Ok(()),
+            || Ok(()),
             |app, _, _locale| {
                 launched.push(app);
                 Ok(AppExit::Calendar(CalendarExit::ClosedByUser))
@@ -466,6 +563,7 @@ mod tests {
             &mut console,
             || Ok(false),
             || Ok(()),
+            || panic!("session-ended app exit must not run normal logout cleanup"),
             |app, _, _locale| {
                 assert_eq!(app, AppId::Calendar);
                 Ok(AppExit::Calendar(CalendarExit::SessionEnded))

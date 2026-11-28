@@ -190,6 +190,10 @@ jobs:
             --locked --offline --no-default-features \
             --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
             --bin nagi-init -- --exact desktop_shell_model::tests::focus_cycles_and_only_key_press_activates
+          cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
+            --bin nagi-init -- linux_task24_desktop_shell::tests
           owner_test_dir="$RUNNER_TEMP/nagi-profile-volume-owner-test"
           mkdir -p "$owner_test_dir"
           trap 'rm -rf "$owner_test_dir"' EXIT
