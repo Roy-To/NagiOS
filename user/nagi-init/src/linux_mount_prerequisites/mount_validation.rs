@@ -1,10 +1,29 @@
 //! Pure fail-closed checks shared by release mount owners and host fixtures.
 
+pub(super) const EXT4_SUPERBLOCK_OFFSET: u64 = 1024;
+pub(super) const EXT4_SUPERBLOCK_BYTES: usize = 1024;
+const LINUX_BLOCK_SIZE_SECTOR_BYTES: u64 = 512;
+const EXT4_SUPERBLOCK_END_BYTES: u64 = EXT4_SUPERBLOCK_OFFSET + EXT4_SUPERBLOCK_BYTES as u64;
+const EXT4_SUPERBLOCK_END_SECTORS: u64 =
+    EXT4_SUPERBLOCK_END_BYTES.div_ceil(LINUX_BLOCK_SIZE_SECTOR_BYTES);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CandidateCountFailure {
     DeviceNotFound,
     FilesystemUuidMismatch,
     DeviceAmbiguous,
+}
+
+/// Gate the ext4 UUID read using Linux block `size` (512-byte sectors).
+/// `read_ext4_uuid` reads the superblock range, so a short device is skipped.
+pub(super) fn probe_ext4_candidate<T, E>(
+    size_512b_sectors: u64,
+    probe: impl FnOnce() -> Result<Option<T>, E>,
+) -> Result<Option<T>, E> {
+    if size_512b_sectors < EXT4_SUPERBLOCK_END_SECTORS {
+        return Ok(None);
+    }
+    probe()
 }
 
 pub(super) fn require_single_uuid_match(
@@ -57,9 +76,36 @@ pub(super) fn verify_mount_identity(
 #[cfg(test)]
 mod tests {
     use super::{
-        require_single_uuid_match, verify_mount_identity, CandidateCountFailure,
-        MountIdentityFailure, MountIdentityObservation,
+        probe_ext4_candidate, require_single_uuid_match, verify_mount_identity,
+        CandidateCountFailure, MountIdentityFailure, MountIdentityObservation,
     };
+
+    #[test]
+    fn ext4_scan_skips_empty_and_too_small_devices_before_probe() {
+        for sectors in [0, 1, 3] {
+            let mut probed = false;
+            let result = probe_ext4_candidate(sectors, || {
+                probed = true;
+                Ok::<_, &'static str>(Some(()))
+            });
+            assert_eq!(result, Ok(None));
+            assert!(!probed, "{sectors} sectors must not be read");
+        }
+    }
+
+    #[test]
+    fn ext4_scan_probes_minimum_capacity_and_propagates_read_failure() {
+        let mut probed = false;
+        let result = probe_ext4_candidate(4, || {
+            probed = true;
+            Ok::<_, &'static str>(Some("candidate"))
+        });
+        assert_eq!(result, Ok(Some("candidate")));
+        assert!(probed);
+
+        let unreadable = probe_ext4_candidate(4, || Err::<Option<()>, _>("device unreadable"));
+        assert_eq!(unreadable, Err("device unreadable"));
+    }
 
     #[test]
     fn uuid_scan_requires_exactly_one_candidate_and_classifies_zero_matches() {
