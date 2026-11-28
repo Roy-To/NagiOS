@@ -134,7 +134,7 @@ impl LinuxBootServiceOwner {
         package_store: &File,
         catalog: &VerifiedBootCatalog,
         task24_data_root: Option<&SelectedDataRoot>,
-        verified_identity_receiver: bool,
+        _verified_identity_receiver: bool,
     ) -> io::Result<Self> {
         let metadata = catalog.descriptor().launch_metadata();
         let selected_data_root =
@@ -153,7 +153,7 @@ impl LinuxBootServiceOwner {
         #[cfg(linux_boot_identity_runtime)]
         let validate_previous_identity_terminal = should_validate_previous_identity_terminal(
             cfg!(nagi_release_build),
-            verified_identity_receiver,
+            _verified_identity_receiver,
         );
         #[cfg(linux_boot_identity_runtime)]
         let previous_identity_terminal = if validate_previous_identity_terminal {
