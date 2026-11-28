@@ -1009,6 +1009,16 @@ fn reserve_notes_app_process_root(
                 return Err(io::ErrorKind::InvalidData.into());
             }
             record.sync_all()?;
+            retire_legacy_notes_app_root_record(
+                profile_root,
+                user,
+                profile,
+                principal,
+                uid,
+                gid,
+                metadata.dev(),
+                metadata.ino(),
+            )?;
         }
         Err(Errno::NOENT) => match open_beneath(
             profile_root,
@@ -1033,7 +1043,18 @@ fn reserve_notes_app_process_root(
                     metadata.ino(),
                 )?;
                 legacy.sync_all()?;
+                drop(legacy);
                 publish_notes_app_root_record(profile_root, &expected)?;
+                retire_legacy_notes_app_root_record(
+                    profile_root,
+                    user,
+                    profile,
+                    principal,
+                    uid,
+                    gid,
+                    metadata.dev(),
+                    metadata.ino(),
+                )?;
             }
             Err(Errno::NOENT) => {
                 for entry in Dir::read_from(&root)? {
@@ -1058,6 +1079,46 @@ fn validate_private_root_reservation(record: &File) -> io::Result<()> {
         || attributes.nlink() != 1
     {
         return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(())
+}
+
+fn retire_legacy_notes_app_root_record(
+    profile_root: &impl AsFd,
+    user: UserId,
+    profile: &str,
+    principal: &str,
+    uid: u32,
+    gid: u32,
+    device: u64,
+    inode: u64,
+) -> io::Result<()> {
+    let legacy = match open_beneath(
+        profile_root,
+        LEGACY_NOTES_APP_ROOT_RESERVATION,
+        OFlags::RDONLY | OFlags::NONBLOCK,
+    ) {
+        Ok(fd) => File::from(fd),
+        Err(Errno::NOENT) => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    validate_private_root_reservation(&legacy)?;
+    let mut observed = String::new();
+    (&legacy)
+        .take(MAX_RECORD_BYTES + 1)
+        .read_to_string(&mut observed)?;
+    validate_legacy_notes_app_root_record(
+        &observed, user, profile, principal, uid, gid, device, inode,
+    )?;
+    drop(legacy);
+    match unlinkat(
+        profile_root,
+        LEGACY_NOTES_APP_ROOT_RESERVATION,
+        AtFlags::empty(),
+    ) {
+        Ok(()) => fsync(profile_root)?,
+        Err(Errno::NOENT) => {}
+        Err(error) => return Err(error.into()),
     }
     Ok(())
 }
@@ -1294,6 +1355,13 @@ mod tests {
             reservation.lines().last(),
             Some(lowercase_hex(&selected_data_identity).as_str())
         );
+        fs::set_permissions(&reservation_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            attach().err().unwrap().kind(),
+            io::ErrorKind::PermissionDenied,
+            "the v2 marker must retain its private-file mode"
+        );
+        fs::set_permissions(&reservation_path, fs::Permissions::from_mode(0o600)).unwrap();
         fs::write(
             path.join("profile-notes-v1/profile_notes/app-root/persisted"),
             b"note",
@@ -1301,18 +1369,15 @@ mod tests {
         .unwrap();
         fs::remove_file(&reservation_path).unwrap();
         let legacy_reservation_path = path.join("profile-notes-v1/profile_notes/app-root.v1");
-        fs::write(
-            &legacy_reservation_path,
-            format!(
-                "NAGI-NOTES-APP-ROOT-1\n{:016x}\n{profile}\n{principal}\norg.nagi.notes\n{:08x}\n{:08x}\n{:016x}\n{:016x}\n{mount_id:016x}\n",
-                user.0,
-                NOTES_APP_UID,
-                NOTES_APP_GID,
-                first_metadata.dev(),
-                first_metadata.ino(),
-            ),
-        )
-        .unwrap();
+        let legacy_record = format!(
+            "NAGI-NOTES-APP-ROOT-1\n{:016x}\n{profile}\n{principal}\norg.nagi.notes\n{:08x}\n{:08x}\n{:016x}\n{:016x}\n{mount_id:016x}\n",
+            user.0,
+            NOTES_APP_UID,
+            NOTES_APP_GID,
+            first_metadata.dev(),
+            first_metadata.ino(),
+        );
+        fs::write(&legacy_reservation_path, &legacy_record).unwrap();
         fs::set_permissions(&legacy_reservation_path, fs::Permissions::from_mode(0o600)).unwrap();
         drop(objects);
         let remounted = path.with_file_name(format!(
@@ -1367,6 +1432,31 @@ mod tests {
         assert_eq!(
             migrated_reservation.lines().last(),
             Some(lowercase_hex(&selected_data_identity).as_str())
+        );
+        assert!(
+            !legacy_reservation_path.exists(),
+            "successful v1 migration must durably retire the legacy marker"
+        );
+
+        // Simulate interruption after the v2 file and parent are synced but
+        // before the old v1 marker is unlinked. Reopen must retire v1 before
+        // accepting the durable v2 root.
+        fs::write(&legacy_reservation_path, &legacy_record).unwrap();
+        fs::set_permissions(&legacy_reservation_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let (interrupted_objects, _, _, interrupted_root) = reserve(
+            &remounted_data,
+            remounted_mount_id,
+            &selected_data_identity,
+            user,
+            profile,
+            principal,
+            AppStorageKind::Notes,
+        )
+        .unwrap();
+        drop((interrupted_objects, interrupted_root));
+        assert!(
+            !legacy_reservation_path.exists(),
+            "v2 readback must finish interrupted v1 retirement"
         );
         assert_eq!(
             reserve(
