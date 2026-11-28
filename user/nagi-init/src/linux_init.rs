@@ -78,7 +78,7 @@ mod linux_init_c3_slot_journal;
 #[cfg(all(
     target_os = "linux",
     target_arch = "x86_64",
-    not(any(linux_dev_preview_smoke, nagi_release_build))
+    not(linux_dev_preview_smoke)
 ))]
 #[path = "linux_task24_c3_data_journal.rs"]
 mod linux_task24_c3_data_journal;
