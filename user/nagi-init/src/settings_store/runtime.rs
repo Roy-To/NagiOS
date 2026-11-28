@@ -12,9 +12,9 @@ use nagi_localization::Locale;
 use nagi_persistence_contract::Revision;
 use nagi_ui::ThemeMode;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", linux_task24_settings))]
 use super::password::PasswordPanel;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", linux_task24_settings))]
 use libnagi::InputEvent;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,12 +97,12 @@ impl<'a, S: PreferencesPersistence> SettingsSession<'a, S> {
         panel
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", linux_task24_settings))]
     pub(crate) fn password_key(&mut self, panel: &mut PasswordPanel, event: InputEvent) -> bool {
         panel.on_key(event, &mut *self.runtime.change_password)
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", linux_task24_settings))]
     pub(crate) fn render_password(
         &self,
         panel: &PasswordPanel,
@@ -251,6 +251,10 @@ mod tests {
         }
     }
 
+    fn unavailable_password(_current: &[u8], _next: &[u8]) -> PasswordResult {
+        PasswordResult::Unavailable
+    }
+
     #[test]
     fn saves_locale_and_dark_theme_through_the_owner_store_and_reopens_them() {
         let persisted = Rc::new(RefCell::new(Persisted::default()));
@@ -268,7 +272,7 @@ mod tests {
                 Ok(())
             }
         };
-        let mut change = |_, _| PasswordResult::Unavailable;
+        let mut change = unavailable_password;
         let mut settings =
             SettingsSession::open(runtime(Locale::EnUs, &mut open, &mut mirror, &mut change));
         let mut panel = settings.panel();
@@ -296,7 +300,7 @@ mod tests {
             mirror_state.borrow_mut().push(locale);
             Ok(())
         };
-        let mut change = |_, _| PasswordResult::Unavailable;
+        let mut change = unavailable_password;
         let reopened =
             SettingsSession::open(runtime(Locale::EnUs, &mut open, &mut mirror, &mut change));
         assert_eq!(reopened.preferences(), expected);
@@ -318,7 +322,7 @@ mod tests {
             mirror_state.borrow_mut().push(locale);
             Ok(())
         };
-        let mut change = |_, _| PasswordResult::Unavailable;
+        let mut change = unavailable_password;
         let mut settings =
             SettingsSession::open(runtime(Locale::EnUs, &mut open, &mut mirror, &mut change));
         let mut panel = settings.panel();
@@ -349,7 +353,7 @@ mod tests {
                 Ok(())
             }
         };
-        let mut change = |_, _| PasswordResult::Unavailable;
+        let mut change = unavailable_password;
         let mut settings =
             SettingsSession::open(runtime(Locale::EnUs, &mut open, &mut mirror, &mut change));
         let mut panel = settings.panel();
