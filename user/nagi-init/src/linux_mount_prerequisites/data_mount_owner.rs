@@ -321,7 +321,7 @@ impl DevelopmentDataMountOwner {
                 .retain_identity_snapshot_directory(Path::new(name))?
                 .sync_all()?;
         }
-        input.identity_inputs(Path::new("accounts"), Path::new("snapshots"))?;
+        input.identity_inputs_for_boot(Path::new("accounts"), Path::new("snapshots"))?;
         let journal_directory =
             selected.retain_identity_snapshot_directory(Path::new(DATA_JOURNAL_DIRECTORY))?;
         let marker_name = CString::new(DATA_BOOTSTRAP_MARKER_NAME)

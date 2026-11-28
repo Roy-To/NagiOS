@@ -8,6 +8,7 @@ use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 
+use crate::VerifiedDataRoot;
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
 
@@ -99,6 +100,7 @@ impl SelectedDataRoot {
 /// Development device identity from the observed block-device serial and the
 /// ext4 UUID accepted by the signed development selection. This is not a
 /// product Nagi Volume ID and grants no access.
+#[cfg(not(nagi_release_build))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DevelopmentBootVolumeIdentity {
     device_serial: String,
@@ -106,6 +108,7 @@ pub(crate) struct DevelopmentBootVolumeIdentity {
     mount_id: u64,
 }
 
+#[cfg(not(nagi_release_build))]
 impl DevelopmentBootVolumeIdentity {
     pub(crate) fn new(device_serial: String, filesystem_uuid: String, mount_id: u64) -> Self {
         Self {
@@ -116,6 +119,62 @@ impl DevelopmentBootVolumeIdentity {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReleaseDataMountIdentity {
+    filesystem_uuid: String,
+    device_rdev: u64,
+    device_major: u32,
+    device_minor: u32,
+    mount_id: u64,
+    accounts_path: String,
+    snapshots_path: String,
+}
+
+#[derive(Clone)]
+enum BootVolumeIdentityKind {
+    #[cfg(not(nagi_release_build))]
+    Development(DevelopmentBootVolumeIdentity),
+    ReleaseData(ReleaseDataMountIdentity),
+}
+
+/// Boot-local identity carried with the selected root FD. This is mount
+/// provenance only; it does not authorize a C1 Session or profile.
+#[derive(Clone)]
+pub(crate) struct BootVolumeIdentity {
+    pub(crate) mount_id: u64,
+    kind: BootVolumeIdentityKind,
+}
+
+impl BootVolumeIdentity {
+    #[cfg(not(nagi_release_build))]
+    fn from_development(identity: DevelopmentBootVolumeIdentity) -> Self {
+        Self {
+            mount_id: identity.mount_id,
+            kind: BootVolumeIdentityKind::Development(identity),
+        }
+    }
+
+    fn from_release_data(identity: ReleaseDataMountIdentity) -> Self {
+        Self {
+            mount_id: identity.mount_id,
+            kind: BootVolumeIdentityKind::ReleaseData(identity),
+        }
+    }
+
+    fn release_data(&self) -> Option<&ReleaseDataMountIdentity> {
+        match &self.kind {
+            #[cfg(not(nagi_release_build))]
+            BootVolumeIdentityKind::Development(_) => None,
+            BootVolumeIdentityKind::ReleaseData(identity) => Some(identity),
+        }
+    }
+
+    #[cfg(not(nagi_release_build))]
+    fn is_development(&self) -> bool {
+        matches!(&self.kind, BootVolumeIdentityKind::Development(_))
+    }
+}
+
 /// Typed, retained directory input for the private Profile Notes owner.
 ///
 /// Construction is crate-private. Holding this FD does not authenticate a
@@ -123,17 +182,86 @@ impl DevelopmentBootVolumeIdentity {
 /// Verified attachment.
 pub(crate) struct BootVolumeInput {
     directory: File,
-    identity: DevelopmentBootVolumeIdentity,
+    identity: BootVolumeIdentity,
 }
 
 impl BootVolumeInput {
+    #[cfg(not(nagi_release_build))]
     pub(crate) fn from_development_data_mount(
         directory: File,
         identity: DevelopmentBootVolumeIdentity,
     ) -> Self {
         Self {
             directory,
-            identity,
+            identity: BootVolumeIdentity::from_development(identity),
+        }
+    }
+
+    pub(crate) fn from_verified_data_root(root: VerifiedDataRoot) -> Self {
+        let (
+            directory,
+            filesystem_uuid,
+            device_rdev,
+            device_major,
+            device_minor,
+            mount_id,
+            accounts_path,
+            snapshots_path,
+        ) = root.into_parts();
+        Self {
+            directory,
+            identity: BootVolumeIdentity::from_release_data(ReleaseDataMountIdentity {
+                filesystem_uuid,
+                device_rdev,
+                device_major,
+                device_minor,
+                mount_id,
+                accounts_path,
+                snapshots_path,
+            }),
+        }
+    }
+
+    pub(crate) fn verified_identity_paths(&self) -> io::Result<(&Path, &Path)> {
+        let identity = self.identity.release_data().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "verified release Data selection is unavailable",
+            )
+        })?;
+        Ok((
+            Path::new(&identity.accounts_path),
+            Path::new(&identity.snapshots_path),
+        ))
+    }
+
+    /// Open C1's account verifier and snapshot directory only at paths from
+    /// the same release selection that established this root FD.
+    pub(crate) fn verified_identity_inputs(&self) -> io::Result<(File, LinuxAccountVerifier)> {
+        let (accounts, snapshots) = self.verified_identity_paths()?;
+        self.identity_inputs(accounts, snapshots)
+    }
+
+    /// Release boot always uses paths bound to the verified Data selection.
+    /// Development callers may supply their existing fixed fixture paths.
+    pub(crate) fn identity_inputs_for_boot(
+        &self,
+        accounts: &Path,
+        snapshots: &Path,
+    ) -> io::Result<(File, LinuxAccountVerifier)> {
+        let (accounts, snapshots) = self.identity_paths_for_boot(accounts, snapshots)?;
+        self.identity_inputs(accounts, snapshots)
+    }
+
+    fn identity_paths_for_boot<'a>(
+        &'a self,
+        accounts: &'a Path,
+        snapshots: &'a Path,
+    ) -> io::Result<(&'a Path, &'a Path)> {
+        if self.identity.release_data().is_some() {
+            self.verified_identity_paths()
+        } else {
+            Ok((accounts, snapshots))
         }
     }
 
@@ -151,7 +279,7 @@ impl BootVolumeInput {
         })
     }
 
-    pub(crate) fn identity_inputs(
+    fn identity_inputs(
         &self,
         accounts: &Path,
         snapshots: &Path,
@@ -659,6 +787,10 @@ pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> AppStorageOwne
     }
 }
 
+pub(crate) fn pending_with_verified_data_root(root: VerifiedDataRoot) -> AppStorageOwners {
+    pending_with_boot_volume(BootVolumeInput::from_verified_data_root(root))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,6 +843,80 @@ mod tests {
         fs::remove_dir(path.join("profiles/owner")).unwrap();
         fs::remove_dir(path.join("profiles")).unwrap();
         fs::remove_dir(path.join("accounts")).unwrap();
+        fs::remove_dir(path).unwrap();
+    }
+
+    #[test]
+    fn verified_data_root_transfers_its_fd_and_mount_identity_into_app_owners() {
+        let path = std::env::temp_dir().join(format!(
+            "nagi-verified-data-owner-root-{}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).unwrap();
+        let directory = File::open(&path).unwrap();
+        let before = directory.metadata().unwrap();
+        let identity = ReleaseDataMountIdentity {
+            filesystem_uuid: "12345678-1234-4234-8234-123456789abc".to_owned(),
+            device_rdev: 0x800,
+            device_major: 8,
+            device_minor: 0,
+            mount_id: 42,
+            accounts_path: "accounts".to_owned(),
+            snapshots_path: "identity/snapshots".to_owned(),
+        };
+        let root = VerifiedDataRoot::from_verified_parts_for_test(
+            directory,
+            identity.filesystem_uuid,
+            identity.device_rdev,
+            identity.device_major,
+            identity.device_minor,
+            identity.mount_id,
+            identity.accounts_path,
+            identity.snapshots_path,
+        )
+        .unwrap();
+        let clone = root.try_clone().unwrap();
+        assert_eq!(
+            root.filesystem_uuid(),
+            "12345678-1234-4234-8234-123456789abc"
+        );
+        assert_eq!(root.device_rdev(), 0x800);
+        assert_eq!(root.device_major_minor(), (8, 0));
+        assert_eq!(root.mount_id(), 42);
+        assert_eq!(root.accounts_path(), Path::new("accounts"));
+        assert_eq!(root.snapshots_path(), Path::new("identity/snapshots"));
+        assert_eq!(clone.mount_id(), root.mount_id());
+        assert_eq!(clone.device_rdev(), root.device_rdev());
+        let root_metadata = rustix::fs::fstat(root.as_fd()).unwrap();
+        let clone_metadata = rustix::fs::fstat(clone.as_fd()).unwrap();
+        assert_eq!(
+            (clone_metadata.st_dev, clone_metadata.st_ino),
+            (root_metadata.st_dev, root_metadata.st_ino)
+        );
+
+        let mut owners = pending_with_verified_data_root(root);
+        assert!(owners.has_boot_volume_input());
+        let boot_volume = owners.boot_volume.as_ref().unwrap();
+        let after = boot_volume.directory.metadata().unwrap();
+        assert_eq!((after.dev(), after.ino()), (before.dev(), before.ino()));
+        assert_eq!(boot_volume.identity.mount_id, 42);
+        assert_eq!(
+            boot_volume.verified_identity_paths().unwrap(),
+            (Path::new("accounts"), Path::new("identity/snapshots"))
+        );
+        assert_eq!(
+            boot_volume
+                .identity_paths_for_boot(Path::new("untrusted-accounts"), Path::new("other"))
+                .unwrap(),
+            (Path::new("accounts"), Path::new("identity/snapshots"))
+        );
+        assert_eq!(
+            boot_volume.identity.release_data().unwrap().device_rdev,
+            0x800
+        );
+
+        owners.end().unwrap();
+        drop(owners);
         fs::remove_dir(path).unwrap();
     }
 }

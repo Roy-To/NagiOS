@@ -16,6 +16,9 @@ pub(crate) enum VerificationError {
         actual: u64,
         missing: u64,
     },
+    ReadOnly {
+        actual: u64,
+    },
 }
 
 pub(crate) fn verify(required: u64, actual: u64) -> Result<(), VerificationError> {
@@ -34,9 +37,18 @@ pub(crate) fn verify(required: u64, actual: u64) -> Result<(), VerificationError
     Ok(())
 }
 
+pub(crate) fn verify_rw(required: u64, actual: u64) -> Result<(), VerificationError> {
+    if actual & ST_RDONLY != 0 {
+        return Err(VerificationError::ReadOnly { actual });
+    }
+    verify(required, actual)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{verify, VerificationError, ST_NODEV, ST_NOEXEC, ST_NOSUID, ST_RDONLY, ST_VALID};
+    use super::{
+        verify, verify_rw, VerificationError, ST_NODEV, ST_NOEXEC, ST_NOSUID, ST_RDONLY, ST_VALID,
+    };
 
     const PROC_REQUIRED: u64 = ST_NOSUID | ST_NODEV | ST_NOEXEC;
     const SYS_REQUIRED: u64 = ST_RDONLY | PROC_REQUIRED;
@@ -80,5 +92,16 @@ mod tests {
     fn all_required_flags_are_accepted_when_st_valid_is_present() {
         assert_eq!(verify(PROC_REQUIRED, PROC_REQUIRED | ST_VALID), Ok(()));
         assert_eq!(verify(SYS_REQUIRED, SYS_REQUIRED | ST_VALID), Ok(()));
+    }
+
+    #[test]
+    fn data_rw_flags_reject_read_only_even_when_other_flags_are_present() {
+        assert_eq!(
+            verify_rw(PROC_REQUIRED, PROC_REQUIRED | ST_RDONLY | ST_VALID),
+            Err(VerificationError::ReadOnly {
+                actual: PROC_REQUIRED | ST_RDONLY | ST_VALID,
+            })
+        );
+        assert_eq!(verify_rw(PROC_REQUIRED, PROC_REQUIRED | ST_VALID), Ok(()));
     }
 }
