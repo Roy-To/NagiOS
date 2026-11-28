@@ -27,7 +27,11 @@ REQUIRED_EVIDENCE = (
     "tools/nagi-developer-platform/validation/test_stage2.py",
     "tools/nagi-developer-platform/validation/test_generated_check.py",
     "tools/nagi-developer-platform/validation/test_report.py",
+    "tests/developer-platform/evaluation/test_task_doc_status.py",
 )
+# `状態: <担当> / <状態値>（補足）`: the value is the text between the first `/` and
+# the opening parenthesis of the note.
+STATUS_VALUE = re.compile(r"^状態:[^/\n]*/\s*([^（(\n]*?)\s*[（(]")
 
 
 def doc_text(path=TASK_DOC):
@@ -37,6 +41,12 @@ def doc_text(path=TASK_DOC):
 def status_line(text):
     lines = [line for line in text.splitlines() if line.startswith("状態:")]
     return lines[0] if len(lines) == 1 else ""
+
+
+def status_value(line):
+    """The status value itself, without the owner part or the parenthesised note."""
+    match = STATUS_VALUE.match(line)
+    return match.group(1) if match else None
 
 
 def evidence_section(text):
@@ -98,11 +108,17 @@ class TaskDocStatus(unittest.TestCase):
 
     def test_status_is_partial_not_not_started(self):
         line = status_line(self.text())
-        self.assertIn("PARTIAL", line)
+        # The value before the note must be exactly PARTIAL; a note mentioning
+        # PARTIAL must not keep e.g. `DONE扱い（旧状態はPARTIAL）` green.
+        self.assertEqual(status_value(line), "PARTIAL", line)
         self.assertNotIn("NOT STARTED", self.text())
 
     def test_status_is_not_done(self):
         line = status_line(self.text())
+        value = status_value(line)
+        self.assertIsNotNone(value, line)
+        # No word boundary check: `DONE扱い` has none between `E` and `扱`.
+        self.assertNotRegex(value, r"DONE|PASS")
         self.assertIsNone(re.search(r"\bDONE\b|\bPASS\b", line), line)
 
     def test_evidence_links_exist_and_cover_required_files(self):
@@ -189,6 +205,26 @@ class TaskDocMutationTests(unittest.TestCase):
         failed = self.failed(text)
         self.assertIn("test_status_is_not_done", failed)
         self.assertIn("test_status_is_partial_not_not_started", failed)
+
+    def test_status_done_with_partial_note_fails(self):
+        text = doc_text().replace("/ PARTIAL（", "/ DONE扱い（旧状態はPARTIAL。", 1)
+        self.assertNotEqual(text, doc_text())
+        self.assertIn("PARTIAL", status_line(text))
+        failed = self.failed(text)
+        self.assertIn("test_status_is_not_done", failed)
+        self.assertIn("test_status_is_partial_not_not_started", failed)
+
+    def test_status_value_with_suffix_fails(self):
+        text = doc_text().replace("/ PARTIAL（", "/ PARTIAL完了（", 1)
+        self.assertNotEqual(text, doc_text())
+        self.assertEqual(self.failed(text), ["test_status_is_partial_not_not_started"])
+
+    def test_renamed_self_test_reference_fails(self):
+        old = "evaluation/test_task_doc_status.py)"
+        self.assertEqual(doc_text().count(old), 1)
+        text = doc_text().replace(old, "evaluation/test_task_doc_status_missing.py)", 1)
+        self.assertEqual(self.failed(text),
+                         ["test_evidence_links_exist_and_cover_required_files"])
 
     def test_missing_evidence_file_fails(self):
         (self.tmp / REQUIRED_EVIDENCE[0]).unlink()
