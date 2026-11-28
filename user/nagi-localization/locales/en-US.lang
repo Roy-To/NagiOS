@@ -97,6 +97,7 @@ settings.preferences.reload=Reload
 settings.preferences.close=Close
 settings.preferences.save-failed=Could not save settings.
 settings.preferences.reload-required=Reload settings before saving.
+settings.preferences.locale-sync-failed=Settings saved; login language update failed.
 settings.password.confirm=Confirm
 settings.password.changed=Password changed
 settings.password.error.unknown=Password change result unknown
